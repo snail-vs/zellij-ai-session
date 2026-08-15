@@ -79,6 +79,8 @@ q      关闭 Navigator
 
 `Enter` 打开已有 runtime 时会聚焦它；历史 Session 会按 `open_mode` 在 tab 或 pane 中恢复。
 
+列表标题会优先保持 Agent 自己的标题：Codex 使用 `~/.codex/session_index.jsonl` 中最新的 `thread_name`，OpenCode 使用 SQLite `session.title`；只有缺少原始标题时才使用首条用户消息或默认名称。
+
 ## 手工构建
 
 安装脚本已经覆盖绝大多数场景。需要手工构建时：

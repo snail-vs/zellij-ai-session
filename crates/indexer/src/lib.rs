@@ -40,7 +40,10 @@ impl Indexer {
 
         let mut adapters: Vec<Box<dyn AgentAdapter>> = Vec::new();
         if let Some(home) = codex_home {
-            adapters.push(Box::new(CodexAdapter::new(home.join("sessions"))));
+            adapters.push(Box::new(CodexAdapter::new(
+                home.join("sessions"),
+                home.join("session_index.jsonl"),
+            )));
         }
         if let Some(database) = opencode_db {
             adapters.push(Box::new(OpenCodeAdapter::new(database)));

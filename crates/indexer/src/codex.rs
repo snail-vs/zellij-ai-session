@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -12,11 +13,15 @@ use crate::adapters::AgentAdapter;
 
 pub struct CodexAdapter {
     sessions_root: PathBuf,
+    session_index: PathBuf,
 }
 
 impl CodexAdapter {
-    pub fn new(sessions_root: PathBuf) -> Self {
-        Self { sessions_root }
+    pub fn new(sessions_root: PathBuf, session_index: PathBuf) -> Self {
+        Self {
+            sessions_root,
+            session_index,
+        }
     }
 
     fn parse_file(&self, path: &Path) -> Result<Option<AiSession>> {
@@ -44,7 +49,7 @@ impl CodexAdapter {
                         title = value
                             .pointer("/payload/content/0/text")
                             .and_then(Value::as_str)
-                            .map(clean_title);
+                            .and_then(clean_title);
                     }
                 }
                 _ => {}
@@ -108,8 +113,12 @@ impl AgentAdapter for CodexAdapter {
         if !self.sessions_root.exists() {
             return Ok(result);
         }
+        let thread_names = read_thread_names(&self.session_index)?;
         visit_jsonl(&self.sessions_root, &mut |path| {
-            if let Some(session) = self.parse_file(path)? {
+            if let Some(mut session) = self.parse_file(path)? {
+                if let Some(thread_name) = thread_names.get(&session.agent_session_id) {
+                    session.title = thread_name.clone();
+                }
                 result.push(session);
             }
             Ok(())
@@ -170,11 +179,64 @@ fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
     era * 146097 + day_of_era - 719468
 }
 
-fn clean_title(title: &str) -> String {
+fn read_thread_names(path: &Path) -> Result<HashMap<String, String>> {
+    if !path.exists() {
+        return Ok(HashMap::new());
+    }
+    let file =
+        File::open(path).with_context(|| format!("open Codex session index {}", path.display()))?;
+    let reader = BufReader::new(file);
+    let mut names = HashMap::new();
+    for line in reader.lines() {
+        let line = line?;
+        let value: Value = match serde_json::from_str(&line) {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+        let Some(id) = value.get("id").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(thread_name) = value
+            .get("thread_name")
+            .and_then(Value::as_str)
+            .and_then(clean_title)
+        else {
+            continue;
+        };
+        names.insert(id.to_string(), thread_name);
+    }
+    Ok(names)
+}
+
+fn clean_title(title: &str) -> Option<String> {
     let title = title.lines().next().unwrap_or(title).trim();
     if title.is_empty() {
-        "Untitled session".into()
+        None
     } else {
-        title.chars().take(100).collect()
+        Some(title.chars().take(100).collect())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn latest_codex_thread_name_wins() {
+        let first =
+            r#"{"id":"session-1","thread_name":"First name","updated_at":"2026-08-16T10:00:00Z"}"#;
+        let second = r#"{"id":"session-1","thread_name":"Renamed session","updated_at":"2026-08-16T10:01:00Z"}"#;
+        let mut names = HashMap::new();
+        for line in [first, second] {
+            let value: Value = serde_json::from_str(line).unwrap();
+            let id = value.get("id").and_then(Value::as_str).unwrap();
+            let title = value
+                .get("thread_name")
+                .and_then(Value::as_str)
+                .and_then(clean_title)
+                .unwrap();
+            names.insert(id.to_string(), title);
+        }
+        assert_eq!(names.get("session-1"), Some(&"Renamed session".to_string()));
     }
 }
