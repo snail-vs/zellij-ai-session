@@ -6,16 +6,23 @@ Project-first session navigator for Codex and OpenCode in Zellij.
 
 ## 一键安装
 
-准备好 Rust（推荐通过 [rustup](https://rustup.rs/) 安装）后，在项目目录执行：
+普通用户无需安装 Rust，直接执行：
 
 ```bash
-./install.sh
+curl -fsSL https://raw.githubusercontent.com/snail-vs/zellij-ai-session/main/install.sh | bash
+```
+
+脚本会自动识别操作系统和 CPU 架构，从 GitHub Release 下载预编译 indexer 和 WASI 插件，并校验 `SHA256SUMS`。
+
+开发者在源码目录执行：
+
+```bash
+./install.sh --from-source
 ```
 
 安装脚本会自动：
 
-- 安装 `wasm32-wasip1` 编译目标；
-- 构建并安装 indexer 和 Zellij WASI 插件到当前用户目录；
+- 下载或构建 indexer 和 Zellij WASI 插件到当前用户目录；
 - 自动创建或更新 `~/.config/zellij/config.kdl`；
 - 配置 `Alt s` 打开或聚焦 AI Sessions；
 - 配置默认在新 tab 中恢复 Session，并关闭插件缓存，升级后直接生效；
@@ -31,6 +38,9 @@ Project-first session navigator for Codex and OpenCode in Zellij.
 
 # 使用其他快捷键
 ./install.sh --key "Ctrl g"
+
+# 安装指定 Release
+./install.sh --version v0.1.0
 
 # 只构建和安装文件，不修改 Zellij 配置
 ./install.sh --no-keybind
@@ -52,7 +62,7 @@ Project-first session navigator for Codex and OpenCode in Zellij.
 ~/.config/zellij/config.kdl
 ```
 
-可以通过 `ZELLIJ_AI_SESSION_BIN_DIR`、`ZELLIJ_AI_SESSION_DATA_DIR` 和 `ZELLIJ_AI_SESSION_CONFIG_FILE` 覆盖这些路径。
+可以通过 `ZELLIJ_AI_SESSION_BIN_DIR`、`ZELLIJ_AI_SESSION_DATA_DIR` 和 `ZELLIJ_AI_SESSION_CONFIG_FILE` 覆盖这些路径；也可以通过 `ZELLIJ_AI_SESSION_REPO` 和 `ZELLIJ_AI_SESSION_VERSION` 指定 Release 来源和版本。
 
 ## 使用方式
 

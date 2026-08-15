@@ -103,7 +103,7 @@ zellij-ai-session-v0.1.0/
 普通用户最终只需要执行：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/OWNER/REPO/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/snail-vs/zellij-ai-session/main/install.sh | bash
 ```
 
 安装脚本的完整流程如下：
@@ -143,7 +143,7 @@ curl -fsSL https://raw.githubusercontent.com/OWNER/REPO/main/install.sh | bash
 ```kdl
 // zellij-ai-session:begin
 shared {
-        bind "Alt s" {
+    bind "Alt s" {
         LaunchOrFocusPlugin "file:/path/to/zellij_ai_session_plugin.wasm" {
             floating true
             move_to_focused_tab true
@@ -215,15 +215,21 @@ shared {
 源码安装仍然保留，主要用于开发和测试：
 
 ```bash
-./install.sh
+./install.sh --from-source
 ```
 
 它会在本地构建 indexer 和 WASM 插件。
 
-面向普通用户的 Release 安装则不再执行 `cargo build`，而是：
+面向普通用户的 Release 安装执行：
 
 ```text
 检测平台 → 下载预编译产物 → 校验 → 安装 → 修改 Zellij 配置
+```
+
+也可以通过参数安装指定版本：
+
+```bash
+./install.sh --version v0.1.0
 ```
 
 因此最终可以同时支持：
@@ -249,13 +255,13 @@ git push origin v0.1.0
 Release workflow 会自动：
 
 1. 验证 tag 对应代码；
-2. 构建 Linux x86_64 indexer；
+2. 构建 Linux x86_64 和 ARM64 indexer；
 3. 构建 macOS x86_64 和 Apple Silicon indexer；
 4. 构建通用 WASM 插件；
 5. 生成 `SHA256SUMS`；
 6. 使用 tag 名创建 GitHub Release 并上传产物。
 
-后续还可以继续扩展更多平台，并让远程 `install.sh` 根据系统和 CPU 架构下载这些 Release 产物。
+远程 `install.sh` 会根据系统和 CPU 架构下载对应的 Release 产物。
 
 当前 Release workflow 的具体构建步骤是：
 
@@ -264,7 +270,7 @@ Release workflow 会自动：
 3. 构建多个系统和架构的 indexer；
 4. 计算并上传 SHA256；
 5. 创建 GitHub Release；
-6. 后续由远程安装脚本下载对应产物。
+6. 由远程安装脚本下载对应产物。
 
 最终用户体验为：
 

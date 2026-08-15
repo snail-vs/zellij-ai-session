@@ -4,13 +4,30 @@ set -euo pipefail
 OPEN_MODE=tab
 KEY="Alt s"
 INSTALL_KEYBIND=1
+INSTALL_MODE=auto
+RELEASE_VERSION="${ZELLIJ_AI_SESSION_VERSION:-latest}"
+REPOSITORY="${ZELLIJ_AI_SESSION_REPO:-snail-vs/zellij-ai-session}"
+RELEASE_BASE_URL="${ZELLIJ_AI_SESSION_RELEASE_BASE_URL:-}"
 
 usage() {
     cat <<'EOF'
-Usage: ./install.sh [--open-mode tab|pane] [--key "Alt s"] [--no-keybind]
+Usage: ./install.sh [options]
 
-Builds the indexer and WASI plugin, installs them for the current user, and
-adds an idempotent Alt+s launcher to the Zellij config.
+Install zellij-ai-session for the current user.
+
+Options:
+  --open-mode MODE  Restore sessions in tab or pane (default: tab)
+  --key KEY         Zellij key binding (default: Alt s)
+  --version VERSION Release tag to install (default: latest)
+  --repo OWNER/REPO GitHub repository (default: snail-vs/zellij-ai-session)
+  --from-source     Build from the local source checkout
+  --download        Download a prebuilt GitHub Release
+  --no-keybind      Install files without editing Zellij config
+  -h, --help        Show this help
+
+When run inside the source checkout, local builds are used automatically.
+When run through curl or from another directory, the latest GitHub Release is
+downloaded automatically.
 EOF
 }
 
@@ -26,6 +43,18 @@ while (($#)); do
             KEY=$2
             shift 2
             ;;
+        --version)
+            [[ $# -ge 2 ]] || { echo "--version requires a release tag" >&2; exit 2; }
+            RELEASE_VERSION=$2
+            shift 2
+            ;;
+        --repo)
+            [[ $# -ge 2 ]] || { echo "--repo requires OWNER/REPO" >&2; exit 2; }
+            REPOSITORY=$2
+            shift 2
+            ;;
+        --from-source) INSTALL_MODE=source; shift ;;
+        --download) INSTALL_MODE=download; shift ;;
         --no-keybind) INSTALL_KEYBIND=0; shift ;;
         -h|--help) usage; exit 0 ;;
         *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
@@ -37,31 +66,126 @@ case "$OPEN_MODE" in
     *) echo "open mode must be tab or pane" >&2; exit 2 ;;
 esac
 
-ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+ROOT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)"
 BIN_DIR="${ZELLIJ_AI_SESSION_BIN_DIR:-${XDG_BIN_HOME:-$HOME/.local/bin}}"
 DATA_DIR="${ZELLIJ_AI_SESSION_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/zellij-ai-session}"
 CONFIG_FILE="${ZELLIJ_AI_SESSION_CONFIG_FILE:-${ZELLIJ_CONFIG_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/zellij/config.kdl}}"
 INDEXER_PATH="$BIN_DIR/zellij-ai-session-index"
 PLUGIN_PATH="$DATA_DIR/zellij_ai_session_plugin.wasm"
 
-command -v cargo >/dev/null || { echo "cargo is required (install Rust via rustup.rs)" >&2; exit 1; }
-command -v rustup >/dev/null || { echo "rustup is required to install wasm32-wasip1" >&2; exit 1; }
 command -v python3 >/dev/null || { echo "python3 is required to update Zellij config" >&2; exit 1; }
 
-if ! rustup target list --installed | grep -qx wasm32-wasip1; then
-    echo "Installing Rust target wasm32-wasip1..."
-    rustup target add wasm32-wasip1
+if [[ "$INSTALL_MODE" == auto ]]; then
+    if [[ -f "$ROOT_DIR/Cargo.toml" && -d "$ROOT_DIR/crates" ]]; then
+        INSTALL_MODE=source
+    else
+        INSTALL_MODE=download
+    fi
 fi
 
-echo "Building indexer..."
-cargo build --manifest-path "$ROOT_DIR/Cargo.toml" -p zellij-ai-session-index --release
-echo "Building Zellij plugin..."
-cargo build --manifest-path "$ROOT_DIR/Cargo.toml" \
-    -p zellij-ai-session-plugin --target wasm32-wasip1 --features wasm --release
+TEMP_DIR=""
+cleanup() {
+    if [[ -n "$TEMP_DIR" && -d "$TEMP_DIR" ]]; then
+        rm -rf -- "$TEMP_DIR"
+    fi
+}
+trap cleanup EXIT
+
+if [[ "$INSTALL_MODE" == source ]]; then
+    [[ -f "$ROOT_DIR/Cargo.toml" ]] || {
+        echo "--from-source requires a source checkout" >&2
+        exit 1
+    }
+    command -v cargo >/dev/null || { echo "cargo is required (install Rust via rustup.rs)" >&2; exit 1; }
+    command -v rustup >/dev/null || { echo "rustup is required to install wasm32-wasip1" >&2; exit 1; }
+
+    if ! rustup target list --installed | grep -qx wasm32-wasip1; then
+        echo "Installing Rust target wasm32-wasip1..."
+        rustup target add wasm32-wasip1
+    fi
+
+    echo "Building indexer from source..."
+    cargo build --manifest-path "$ROOT_DIR/Cargo.toml" -p zellij-ai-session-index --release
+    echo "Building Zellij plugin from source..."
+    cargo build --manifest-path "$ROOT_DIR/Cargo.toml" \
+        -p zellij-ai-session-plugin --target wasm32-wasip1 --features wasm --release
+
+    SOURCE_INDEXER="$ROOT_DIR/target/release/zellij-ai-session-index"
+    SOURCE_PLUGIN="$ROOT_DIR/target/wasm32-wasip1/release/zellij_ai_session_plugin.wasm"
+else
+    [[ "$REPOSITORY" == */* ]] || {
+        echo "--repo must use OWNER/REPO format" >&2
+        exit 2
+    }
+    case "$(uname -s):$(uname -m)" in
+        Linux:x86_64|Linux:amd64) PLATFORM=linux-x86_64 ;;
+        Linux:aarch64|Linux:arm64) PLATFORM=linux-aarch64 ;;
+        Darwin:x86_64|Darwin:amd64) PLATFORM=macos-x86_64 ;;
+        Darwin:arm64|Darwin:aarch64) PLATFORM=macos-aarch64 ;;
+        *)
+            echo "Unsupported platform: $(uname -s) $(uname -m)" >&2
+            exit 1
+            ;;
+    esac
+
+    if command -v curl >/dev/null 2>&1; then
+        download_file() {
+            curl -fL --retry 3 --connect-timeout 10 -o "$2" "$1"
+        }
+    elif command -v wget >/dev/null 2>&1; then
+        download_file() {
+            wget -O "$2" "$1"
+        }
+    else
+        echo "curl or wget is required to download a GitHub Release" >&2
+        exit 1
+    fi
+
+    if command -v sha256sum >/dev/null 2>&1; then
+        file_sha256() { sha256sum "$1" | awk '{print $1}'; }
+    elif command -v shasum >/dev/null 2>&1; then
+        file_sha256() { shasum -a 256 "$1" | awk '{print $1}'; }
+    else
+        echo "sha256sum or shasum is required to verify downloads" >&2
+        exit 1
+    fi
+
+    TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/zellij-ai-session.XXXXXX")
+    INDEXER_ASSET="zellij-ai-session-index-$PLATFORM"
+    PLUGIN_ASSET="zellij_ai_session_plugin.wasm"
+    if [[ -n "$RELEASE_BASE_URL" ]]; then
+        RELEASE_URL="${RELEASE_BASE_URL%/}"
+    elif [[ "$RELEASE_VERSION" == latest ]]; then
+        RELEASE_URL="https://github.com/$REPOSITORY/releases/latest/download"
+    else
+        RELEASE_URL="https://github.com/$REPOSITORY/releases/download/$RELEASE_VERSION"
+    fi
+
+    echo "Downloading zellij-ai-session $RELEASE_VERSION for $PLATFORM..."
+    download_file "$RELEASE_URL/$INDEXER_ASSET" "$TEMP_DIR/$INDEXER_ASSET"
+    download_file "$RELEASE_URL/$PLUGIN_ASSET" "$TEMP_DIR/$PLUGIN_ASSET"
+    download_file "$RELEASE_URL/SHA256SUMS" "$TEMP_DIR/SHA256SUMS"
+
+    verify_asset() {
+        asset=$1
+        expected=$(awk -v name="$asset" '$2 == name { print $1; exit }' "$TEMP_DIR/SHA256SUMS")
+        [[ -n "$expected" ]] || { echo "No checksum found for $asset" >&2; exit 1; }
+        actual=$(file_sha256 "$TEMP_DIR/$asset")
+        [[ "$actual" == "$expected" ]] || {
+            echo "Checksum verification failed for $asset" >&2
+            exit 1
+        }
+    }
+    verify_asset "$INDEXER_ASSET"
+    verify_asset "$PLUGIN_ASSET"
+    echo "Download checksums verified."
+    SOURCE_INDEXER="$TEMP_DIR/$INDEXER_ASSET"
+    SOURCE_PLUGIN="$TEMP_DIR/$PLUGIN_ASSET"
+fi
 
 mkdir -p "$BIN_DIR" "$DATA_DIR"
-cp "$ROOT_DIR/target/release/zellij-ai-session-index" "$INDEXER_PATH"
-cp "$ROOT_DIR/target/wasm32-wasip1/release/zellij_ai_session_plugin.wasm" "$PLUGIN_PATH"
+cp "$SOURCE_INDEXER" "$INDEXER_PATH"
+cp "$SOURCE_PLUGIN" "$PLUGIN_PATH"
 chmod 755 "$INDEXER_PATH"
 chmod 644 "$PLUGIN_PATH"
 
@@ -218,6 +342,11 @@ fi
 
 echo
 echo "Installed zellij-ai-session"
+if [[ "$INSTALL_MODE" == source ]]; then
+    echo "  source:  local checkout"
+else
+    echo "  release: $REPOSITORY/$RELEASE_VERSION"
+fi
 echo "  indexer: $INDEXER_PATH"
 echo "  plugin:  $PLUGIN_PATH"
 if ((INSTALL_KEYBIND)); then
