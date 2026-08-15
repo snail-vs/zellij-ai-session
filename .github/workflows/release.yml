@@ -1,0 +1,146 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  verify:
+    name: Verify release source
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+          components: rustfmt
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run tests
+        run: cargo test --workspace
+
+      - name: Check installer scripts
+        run: |
+          bash -n install.sh
+          bash -n uninstall.sh
+
+  build-indexer:
+    name: Build indexer (${{ matrix.asset }})
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            asset: linux-x86_64
+          - os: macos-13
+            target: x86_64-apple-darwin
+            asset: macos-x86_64
+          - os: macos-14
+            target: aarch64-apple-darwin
+            asset: macos-aarch64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build native indexer
+        run: >-
+          cargo build
+          -p zellij-ai-session-index
+          --target ${{ matrix.target }}
+          --release
+
+      - name: Prepare release asset
+        run: |
+          cp "target/${{ matrix.target }}/release/zellij-ai-session-index" \
+            "zellij-ai-session-index-${{ matrix.asset }}"
+          chmod 755 "zellij-ai-session-index-${{ matrix.asset }}"
+
+      - name: Upload indexer asset
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-indexer-${{ matrix.asset }}
+          path: zellij-ai-session-index-${{ matrix.asset }}
+          if-no-files-found: error
+
+  build-plugin:
+    name: Build WASI plugin
+    needs: verify
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+
+      - name: Build WASI plugin
+        run: >-
+          cargo build
+          -p zellij-ai-session-plugin
+          --target wasm32-wasip1
+          --features wasm
+          --release
+
+      - name: Prepare release asset
+        run: cp target/wasm32-wasip1/release/zellij_ai_session_plugin.wasm .
+
+      - name: Upload plugin asset
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-plugin
+          path: zellij_ai_session_plugin.wasm
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    needs: [build-indexer, build-plugin]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download release assets
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+
+      - name: Generate checksums
+        working-directory: dist
+        run: sha256sum * > SHA256SUMS
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "${{ github.ref_name }}"
+          dist/*
+          --title "zellij-ai-session ${{ github.ref_name }}"
+          --generate-notes

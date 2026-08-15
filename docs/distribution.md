@@ -233,14 +233,38 @@ shared {
 
 ## 九、推荐的后续实现
 
-后续可以增加 GitHub Actions：
+仓库现在已经提供两个 GitHub Actions：
+
+- `ci.yml`：在 push、Pull Request 或手动触发时执行格式、测试和构建检查；
+- `release.yml`：检测到 `v*.*.*` tag push 后自动构建并创建 GitHub Release。
+
+创建版本时只需要：
+
+```bash
+git tag -a v0.1.0 -m "Release v0.1.0"
+git push origin main
+git push origin v0.1.0
+```
+
+Release workflow 会自动：
+
+1. 验证 tag 对应代码；
+2. 构建 Linux x86_64 indexer；
+3. 构建 macOS x86_64 和 Apple Silicon indexer；
+4. 构建通用 WASM 插件；
+5. 生成 `SHA256SUMS`；
+6. 使用 tag 名创建 GitHub Release 并上传产物。
+
+后续还可以继续扩展更多平台，并让远程 `install.sh` 根据系统和 CPU 架构下载这些 Release 产物。
+
+当前 Release workflow 的具体构建步骤是：
 
 1. 在 tag 创建时触发构建；
 2. 构建 WASM 插件；
 3. 构建多个系统和架构的 indexer；
 4. 计算并上传 SHA256；
 5. 创建 GitHub Release；
-6. 生成支持版本号的远程安装脚本。
+6. 后续由远程安装脚本下载对应产物。
 
 最终用户体验为：
 
