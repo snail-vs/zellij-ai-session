@@ -62,6 +62,8 @@ pub struct AiSession {
     pub id: String,
     pub agent: AgentKind,
     pub title: String,
+    #[serde(default)]
+    pub search_text: String,
     pub project_id: String,
     pub directory: PathBuf,
     pub created_at_ms: Option<i64>,
@@ -243,6 +245,7 @@ mod tests {
             id: id.to_string(),
             agent: AgentKind::Codex,
             title: id.to_string(),
+            search_text: String::new(),
             project_id: project.id,
             directory: PathBuf::from(directory),
             created_at_ms: Some(updated_at_ms),

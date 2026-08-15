@@ -520,7 +520,7 @@ mod plugin {
             let Some(snapshot) = &self.snapshot else {
                 return Vec::new();
             };
-            let query = self.search_query.to_lowercase();
+            let query = fold_for_search(&self.search_query);
             snapshot
                 .sessions
                 .iter()
@@ -533,14 +533,11 @@ mod plugin {
                         .map(|project| project.project.name.as_str())
                         .unwrap_or_default();
                     query.is_empty()
-                        || session.title.to_lowercase().contains(&query)
+                        || fold_for_search(&session.title).contains(&query)
                         || session.agent.command_name().contains(&query)
-                        || session
-                            .directory
-                            .to_string_lossy()
-                            .to_lowercase()
-                            .contains(&query)
-                        || project_name.to_lowercase().contains(&query)
+                        || fold_for_search(&session.directory.to_string_lossy()).contains(&query)
+                        || fold_for_search(project_name).contains(&query)
+                        || fold_for_search(&session.search_text).contains(&query)
                 })
                 .cloned()
                 .collect()
@@ -651,18 +648,25 @@ mod plugin {
         fn render_search(&self, viewport: usize) {
             println!("Search: {}", self.search_query);
             let sessions = self.search_results();
+            if sessions.is_empty() {
+                println!("  No matching sessions");
+            }
             for (index, session) in sessions
                 .iter()
                 .enumerate()
                 .skip(self.visible_range(sessions.len(), viewport).start)
                 .take(viewport)
             {
+                let preview = search_preview(&session.search_text, &self.search_query)
+                    .map(|preview| format!(" ↳ {preview}"))
+                    .unwrap_or_default();
                 println!(
-                    "{} {} {:<10} {} [{}]",
+                    "{} {} {:<10} {}{} [{}]",
                     if index == self.selected { ">" } else { " " },
                     status_marker(session),
                     session.agent,
                     session.title,
+                    preview,
                     session.directory.display()
                 );
             }
@@ -690,6 +694,41 @@ mod plugin {
         match session.status {
             SessionStatus::Running => "●",
             SessionStatus::Historical => "○",
+        }
+    }
+
+    fn fold_for_search(value: &str) -> String {
+        value.chars().flat_map(char::to_lowercase).collect()
+    }
+
+    fn search_preview(text: &str, query: &str) -> Option<String> {
+        let query = query.trim();
+        if query.is_empty() {
+            return None;
+        }
+        for line in text.lines() {
+            if fold_for_search(line).contains(&fold_for_search(query)) {
+                let line = line.trim();
+                if !line.is_empty() {
+                    return Some(line.chars().take(96).collect());
+                }
+            }
+        }
+        None
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn unicode_search_matches_and_shows_preview() {
+            let text = "先处理别的问题\n修复中文搜索功能并补充测试";
+            assert!(fold_for_search(text).contains(&fold_for_search("中文搜索")));
+            assert_eq!(
+                search_preview(text, "中文搜索"),
+                Some("修复中文搜索功能并补充测试".into())
+            );
         }
     }
 

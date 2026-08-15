@@ -118,6 +118,7 @@ mod tests {
             id: "codex:one".into(),
             agent: AgentKind::Codex,
             title: "one".into(),
+            search_text: String::new(),
             project_id: project.id,
             directory: PathBuf::from("/tmp/app"),
             created_at_ms: None,
