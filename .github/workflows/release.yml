@@ -145,5 +145,6 @@ jobs:
         run: >-
           gh release create "${{ github.ref_name }}"
           dist/*
+          --repo "${{ github.repository }}"
           --title "zellij-ai-session ${{ github.ref_name }}"
           --generate-notes
