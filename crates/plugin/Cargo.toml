@@ -1,0 +1,21 @@
+[package]
+name = "zellij-ai-session-plugin"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+ [lib]
+path = "src/placeholder.rs"
+
+[[bin]]
+name = "zellij_ai_session_plugin"
+path = "src/main.rs"
+
+[features]
+default = []
+wasm = ["dep:zellij-tile"]
+
+[dependencies]
+serde_json.workspace = true
+zellij-ai-session-core = { path = "../core" }
+zellij-tile = { workspace = true, optional = true }
