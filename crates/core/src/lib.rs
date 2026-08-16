@@ -62,8 +62,6 @@ pub struct AiSession {
     pub id: String,
     pub agent: AgentKind,
     pub title: String,
-    #[serde(default)]
-    pub search_text: String,
     pub project_id: String,
     pub directory: PathBuf,
     pub created_at_ms: Option<i64>,
@@ -159,6 +157,10 @@ pub fn project_for_directory(directory: &Path) -> Project {
     }
 }
 
+pub fn search_key(value: &str) -> String {
+    value.chars().flat_map(char::to_lowercase).collect()
+}
+
 pub fn build_snapshot(mut sessions: Vec<AiSession>, warnings: Vec<String>) -> IndexSnapshot {
     sessions.sort_by(|left, right| session_sort_key(left).cmp(&session_sort_key(right)));
 
@@ -245,7 +247,6 @@ mod tests {
             id: id.to_string(),
             agent: AgentKind::Codex,
             title: id.to_string(),
-            search_text: String::new(),
             project_id: project.id,
             directory: PathBuf::from(directory),
             created_at_ms: Some(updated_at_ms),
@@ -287,5 +288,10 @@ mod tests {
         );
 
         assert_eq!(snapshot.projects[0].project.name, "b");
+    }
+
+    #[test]
+    fn search_key_supports_unicode_text() {
+        assert!(search_key("修复中文搜索").contains(&search_key("中文搜索")));
     }
 }

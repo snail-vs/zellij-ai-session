@@ -11,8 +11,6 @@ use zellij_ai_session_core::{
 
 use crate::adapters::AgentAdapter;
 
-const SEARCH_TEXT_LIMIT: usize = 64 * 1024;
-
 pub struct CodexAdapter {
     sessions_root: PathBuf,
     session_index: PathBuf,
@@ -32,7 +30,6 @@ impl CodexAdapter {
         let reader = BufReader::new(file);
         let mut meta = None;
         let mut title = None;
-        let mut search_text = String::new();
         let mut last_timestamp = None;
 
         for line in reader.lines() {
@@ -54,9 +51,6 @@ impl CodexAdapter {
                         let content = payload.get("content");
                         if title.is_none() && role == Some("user") {
                             title = content.and_then(first_text).and_then(clean_title);
-                        }
-                        if let Some(content) = content {
-                            append_json_text(&mut search_text, content);
                         }
                     }
                 }
@@ -97,7 +91,6 @@ impl CodexAdapter {
             title: title.unwrap_or_else(|| {
                 format!("Codex session {}", &session_id[..session_id.len().min(8)])
             }),
-            search_text,
             project_id: project.id,
             directory,
             created_at_ms,
@@ -235,48 +228,6 @@ fn first_text(value: &Value) -> Option<&str> {
     }
 }
 
-fn append_json_text(output: &mut String, value: &Value) {
-    if output.len() >= SEARCH_TEXT_LIMIT {
-        return;
-    }
-    match value {
-        Value::String(text) => append_text(output, text),
-        Value::Array(values) => {
-            for value in values {
-                append_json_text(output, value);
-                if output.len() >= SEARCH_TEXT_LIMIT {
-                    break;
-                }
-            }
-        }
-        Value::Object(object) => {
-            if let Some(text) = object.get("text").and_then(Value::as_str) {
-                append_text(output, text);
-            }
-        }
-        _ => {}
-    }
-}
-
-fn append_text(output: &mut String, text: &str) {
-    let text = text.trim();
-    if text.is_empty() || output.len() >= SEARCH_TEXT_LIMIT {
-        return;
-    }
-    if !output.is_empty() {
-        output.push('\n');
-    }
-    let remaining = SEARCH_TEXT_LIMIT.saturating_sub(output.len());
-    let end = text
-        .char_indices()
-        .map(|(index, _)| index)
-        .chain(std::iter::once(text.len()))
-        .take_while(|index| *index <= remaining)
-        .last()
-        .unwrap_or_default();
-    output.push_str(&text[..end]);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -301,14 +252,11 @@ mod tests {
     }
 
     #[test]
-    fn codex_content_keeps_unicode_for_search() {
+    fn codex_title_keeps_unicode_for_search() {
         let value = serde_json::json!([
             {"type": "input_text", "text": "修复中文搜索"},
             {"type": "output_text", "text": "已完成"}
         ]);
-        let mut search_text = String::new();
-        append_json_text(&mut search_text, &value);
-        assert!(search_text.contains("中文搜索"));
-        assert!(search_text.contains("已完成"));
+        assert_eq!(first_text(&value), Some("修复中文搜索"));
     }
 }

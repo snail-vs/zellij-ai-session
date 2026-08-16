@@ -8,7 +8,7 @@ mod plugin {
 
     use zellij_ai_session_core::{
         AiSession, CommandSpec, IndexSnapshot, ProjectSummary, RuntimeConfidence, RuntimeRef,
-        SessionStatus,
+        SessionStatus, search_key,
     };
     use zellij_tile::prelude::*;
 
@@ -249,11 +249,14 @@ mod plugin {
         }
 
         fn handle_key(&mut self, key: KeyWithModifier) -> bool {
+            if matches!(self.view, View::Search) {
+                return self.handle_search_key(key.bare_key);
+            }
             if !key.has_no_modifiers() {
                 return false;
             }
             match self.view {
-                View::Search => self.handle_search_key(key.bare_key),
+                View::Search => false,
                 View::Projects => match key.bare_key {
                     BareKey::Down | BareKey::Char('j') => {
                         self.move_selection(1);
@@ -520,7 +523,7 @@ mod plugin {
             let Some(snapshot) = &self.snapshot else {
                 return Vec::new();
             };
-            let query = fold_for_search(&self.search_query);
+            let query = search_key(self.search_query.trim());
             snapshot
                 .sessions
                 .iter()
@@ -533,11 +536,10 @@ mod plugin {
                         .map(|project| project.project.name.as_str())
                         .unwrap_or_default();
                     query.is_empty()
-                        || fold_for_search(&session.title).contains(&query)
+                        || search_key(&session.title).contains(&query)
                         || session.agent.command_name().contains(&query)
-                        || fold_for_search(&session.directory.to_string_lossy()).contains(&query)
-                        || fold_for_search(project_name).contains(&query)
-                        || fold_for_search(&session.search_text).contains(&query)
+                        || search_key(&session.directory.to_string_lossy()).contains(&query)
+                        || search_key(project_name).contains(&query)
                 })
                 .cloned()
                 .collect()
@@ -657,16 +659,12 @@ mod plugin {
                 .skip(self.visible_range(sessions.len(), viewport).start)
                 .take(viewport)
             {
-                let preview = search_preview(&session.search_text, &self.search_query)
-                    .map(|preview| format!(" ↳ {preview}"))
-                    .unwrap_or_default();
                 println!(
-                    "{} {} {:<10} {}{} [{}]",
+                    "{} {} {:<10} {} [{}]",
                     if index == self.selected { ">" } else { " " },
                     status_marker(session),
                     session.agent,
                     session.title,
-                    preview,
                     session.directory.display()
                 );
             }
@@ -694,41 +692,6 @@ mod plugin {
         match session.status {
             SessionStatus::Running => "●",
             SessionStatus::Historical => "○",
-        }
-    }
-
-    fn fold_for_search(value: &str) -> String {
-        value.chars().flat_map(char::to_lowercase).collect()
-    }
-
-    fn search_preview(text: &str, query: &str) -> Option<String> {
-        let query = query.trim();
-        if query.is_empty() {
-            return None;
-        }
-        for line in text.lines() {
-            if fold_for_search(line).contains(&fold_for_search(query)) {
-                let line = line.trim();
-                if !line.is_empty() {
-                    return Some(line.chars().take(96).collect());
-                }
-            }
-        }
-        None
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-
-        #[test]
-        fn unicode_search_matches_and_shows_preview() {
-            let text = "先处理别的问题\n修复中文搜索功能并补充测试";
-            assert!(fold_for_search(text).contains(&fold_for_search("中文搜索")));
-            assert_eq!(
-                search_preview(text, "中文搜索"),
-                Some("修复中文搜索功能并补充测试".into())
-            );
         }
     }
 
