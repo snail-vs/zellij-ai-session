@@ -2646,8 +2646,6 @@ dependencies = [
 [[package]]
 name = "zellij-utils"
 version = "0.44.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b823df41cf824f6b9db45f50c3b2bc02cc66d9dd4db223392f19b02cff4a876"
 dependencies = [
  "anyhow",
  "backtrace",

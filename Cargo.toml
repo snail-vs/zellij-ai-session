@@ -6,6 +6,10 @@ members = [
     "crates/indexer-cli",
     "crates/plugin",
 ]
+# The vendored zellij-utils lives outside the workspace: it has its own
+# dependency graph (rusqlite 0.30) that would otherwise conflict with the
+# workspace's rusqlite 0.32. It is consumed through `[patch.crates-io]` below.
+exclude = ["vendor/zellij-utils"]
 
 [workspace.package]
 edition = "2024"
@@ -20,3 +24,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 zellij-tile = "0.44.3"
+
+# Upstream zellij-utils 0.44.3 truncates Unicode chars to u8 when sending
+# `Char` key events to plugins (plugin_api/key.rs: char_index_to_char), which
+# mangles Chinese/emoji typed into plugin panes. We patch a vendored copy until
+# the upstream fix lands. See https://github.com/zellij-org/zellij
+[patch.crates-io]
+zellij-utils = { path = "vendor/zellij-utils" }
