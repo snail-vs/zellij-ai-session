@@ -59,6 +59,7 @@ mod plugin {
                 EventType::CommandPaneOpened,
                 EventType::CommandPaneExited,
                 EventType::PermissionRequestResult,
+                EventType::PastedText,
                 EventType::Visible,
                 EventType::Timer,
             ]);
@@ -81,6 +82,7 @@ mod plugin {
                 Event::RunCommandResult(exit_code, stdout, stderr, context) => {
                     self.handle_command_result(exit_code, stdout, stderr, context)
                 }
+                Event::PastedText(text) => self.handle_pasted_text(text),
                 Event::CommandPaneExited(_, _, _) => {
                     self.refresh();
                     true
@@ -116,7 +118,7 @@ mod plugin {
             match self.view {
             View::Projects => println!("Enter open   / search   r refresh   q close"),
             View::Sessions => println!("Enter open   n new   x close runtime   Esc back   / search   r refresh"),
-            View::Search => println!("Type to search   Backspace erase   Esc back"),
+            View::Search => println!("Type or paste to search   Backspace erase   Esc back"),
             View::NewSession => println!("Enter create   Esc back"),
             }
             if !self.status.is_empty() {
@@ -385,6 +387,17 @@ mod plugin {
                 }
                 _ => false,
             }
+        }
+
+        fn handle_pasted_text(&mut self, text: String) -> bool {
+            if !matches!(self.view, View::Search) {
+                return false;
+            }
+            self.search_query
+                .extend(text.chars().filter(|character| !matches!(character, '\n' | '\r')));
+            self.selected = 0;
+            self.scroll_offset = 0;
+            true
         }
 
         fn open_project(&mut self) {
