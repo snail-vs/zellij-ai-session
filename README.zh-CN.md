@@ -8,11 +8,7 @@
 
 [English](README.md)
 
-<!--
-GIF 插入位置。完成录制后保存为 docs/demo.gif，并将本注释替换为：
-
 ![打开 zellij-ai-session、选择项目、搜索并恢复会话](docs/demo.gif)
--->
 
 Codex、OpenCode、Claude Code 等 Agent CLI 分别保存自己的会话历史。`zellij-ai-session` 会发现这些已有的本地会话，按项目目录统一分组，让用户可以从一个入口搜索并继续之前的工作。
 

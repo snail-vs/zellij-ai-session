@@ -8,12 +8,7 @@
 
 [中文文档](README.zh-CN.md)
 
-<!--
-Demo GIF insertion point. Add the final recording as docs/demo.gif, then replace
-this comment with:
-
 ![Open zellij-ai-session, select a project, search, and resume a session](docs/demo.gif)
--->
 
 Codex, OpenCode, Claude Code and other agent CLIs each keep their own session history. `zellij-ai-session` discovers those existing local sessions, groups them by project directory, and gives you one place to search and continue the work.
 
