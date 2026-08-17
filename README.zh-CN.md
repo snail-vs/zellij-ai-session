@@ -1,6 +1,6 @@
 # zellij-ai-session
 
-> 在 Zellij 里按项目浏览和恢复各类 AI 编码 Agent 会话的导航器。
+> Zellij 的 AI Session 导航器，统一浏览、搜索、恢复和管理各类 AI 编码 Agent 会话（Codex、OpenCode、Claude Code、Qwen Code、Goose 等），支持一键安装。
 
 [English](README.md)
 

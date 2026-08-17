@@ -1,6 +1,6 @@
 # zellij-ai-session
 
-> Project-first session navigator for AI coding agents inside Zellij.
+> A unified navigator for Zellij to browse, search, resume and manage AI coding-agent sessions (Codex, OpenCode, Claude Code, Qwen Code, Goose, and more) — with one-click install.
 
 [中文文档](README.zh-CN.md)
 
