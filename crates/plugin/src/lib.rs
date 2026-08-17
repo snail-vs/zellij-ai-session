@@ -147,13 +147,10 @@ mod plugin {
                     let Some(command) = pane.terminal_command else {
                         continue;
                     };
-                    let agent = if command.contains("codex") {
-                        Some("codex")
-                    } else if command.contains("opencode") {
-                        Some("opencode")
-                    } else {
-                        None
-                    };
+                    let agent = zellij_ai_session_core::AGENT_META
+                        .iter()
+                        .find(|meta| command.contains(meta.command))
+                        .map(|meta| meta.command);
                     let Some(agent) = agent else {
                         continue;
                     };
@@ -427,11 +424,10 @@ mod plugin {
                 self.status = "Project not found".into();
                 return;
             };
-            let agent = match self.selected {
-                0 => "codex",
-                1 => "opencode",
-                _ => return,
+            let Some(meta) = zellij_ai_session_core::AGENT_META.get(self.selected) else {
+                return;
             };
+            let agent = meta.command;
             let mut context = BTreeMap::new();
             context.insert("action".into(), "new".into());
             let cwd = project.project.root_directory.to_string_lossy().to_string();
@@ -686,7 +682,7 @@ mod plugin {
         fn render_new_session(&self, viewport: usize) {
             let project = self.project_id.as_deref().unwrap_or("Project");
             println!("New Agent Session in {project}");
-            for (index, agent) in ["Codex", "OpenCode"]
+            for (index, meta) in zellij_ai_session_core::AGENT_META
                 .iter()
                 .enumerate()
                 .skip(self.visible_range(2, viewport).start)
@@ -695,7 +691,7 @@ mod plugin {
                 println!(
                     "{} {}",
                     if index == self.selected { ">" } else { " " },
-                    agent
+                    meta.display_name
                 );
             }
         }

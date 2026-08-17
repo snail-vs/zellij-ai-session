@@ -2,9 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use rusqlite::{Connection, OpenFlags};
-use zellij_ai_session_core::{
-    AgentKind, AiSession, CommandSpec, SessionStatus, project_for_directory,
-};
+use zellij_ai_session_core::{AgentKind, AiSession, CommandSpec};
 
 use crate::adapters::AgentAdapter;
 
@@ -48,23 +46,19 @@ impl AgentAdapter for OpenCodeAdapter {
         let mut sessions = Vec::new();
         for row in rows {
             let (id, directory, title, created_at_ms, updated_at_ms) = row?;
-            let project = project_for_directory(std::path::Path::new(&directory));
-            sessions.push(AiSession {
-                id: format!("opencode:{id}"),
-                agent: AgentKind::OpenCode,
-                title: if title.trim().is_empty() {
-                    "Untitled session".into()
-                } else {
-                    title
-                },
-                project_id: project.id,
-                directory: PathBuf::from(directory),
-                created_at_ms: Some(created_at_ms),
-                updated_at_ms: Some(updated_at_ms),
-                agent_session_id: id,
-                status: SessionStatus::Historical,
-                runtime: None,
-            });
+            let title = if title.trim().is_empty() {
+                "Untitled session".into()
+            } else {
+                title
+            };
+            sessions.push(AiSession::new(
+                AgentKind::OpenCode,
+                &id,
+                title,
+                PathBuf::from(directory),
+                Some(created_at_ms),
+                Some(updated_at_ms),
+            ));
         }
         Ok(sessions)
     }

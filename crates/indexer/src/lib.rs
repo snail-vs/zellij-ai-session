@@ -1,6 +1,13 @@
 mod adapters;
+mod agents;
+mod claude;
+mod codewhale;
 mod codex;
+mod goose;
 mod opencode;
+mod pi;
+mod qwen;
+mod reasonix;
 
 use std::path::PathBuf;
 
@@ -10,8 +17,6 @@ use zellij_ai_session_core::{
 };
 
 pub use adapters::{AdapterContext, AgentAdapter};
-pub use codex::CodexAdapter;
-pub use opencode::OpenCodeAdapter;
 
 #[derive(Debug, Clone, Default)]
 pub struct IndexerConfig {
@@ -25,28 +30,11 @@ pub struct Indexer {
 
 impl Indexer {
     pub fn from_config(config: IndexerConfig) -> Self {
-        let codex_home = config
-            .codex_home
-            .or_else(|| std::env::var_os("CODEX_HOME").map(PathBuf::from))
-            .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".codex")));
-        let opencode_db = config.opencode_db.or_else(|| {
-            std::env::var_os("XDG_DATA_HOME")
-                .map(|home| PathBuf::from(home).join("opencode/opencode.db"))
-                .or_else(|| {
-                    std::env::var_os("HOME")
-                        .map(|home| PathBuf::from(home).join(".local/share/opencode/opencode.db"))
-                })
-        });
-
         let mut adapters: Vec<Box<dyn AgentAdapter>> = Vec::new();
-        if let Some(home) = codex_home {
-            adapters.push(Box::new(CodexAdapter::new(
-                home.join("sessions"),
-                home.join("session_index.jsonl"),
-            )));
-        }
-        if let Some(database) = opencode_db {
-            adapters.push(Box::new(OpenCodeAdapter::new(database)));
+        for (_, build) in agents::ADAPTER_BUILDERS {
+            if let Some(adapter) = build(&config) {
+                adapters.push(adapter);
+            }
         }
         Self { adapters }
     }

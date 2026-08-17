@@ -5,9 +5,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use serde_json::Value;
-use zellij_ai_session_core::{
-    AgentKind, AiSession, CommandSpec, SessionStatus, project_for_directory,
-};
+use zellij_ai_session_core::{AgentKind, AiSession, CommandSpec};
 
 use crate::adapters::AgentAdapter;
 
@@ -77,28 +75,23 @@ impl CodexAdapter {
             Some(directory) => directory,
             None => return Ok(None),
         };
-        let project = project_for_directory(&directory);
         let created_at_ms = payload
             .get("timestamp")
             .and_then(Value::as_str)
             .and_then(parse_timestamp)
             .or_else(|| value_timestamp(&meta));
         let updated_at_ms = last_timestamp.or(created_at_ms);
+        let title = title
+            .unwrap_or_else(|| format!("Codex session {}", &session_id[..session_id.len().min(8)]));
 
-        Ok(Some(AiSession {
-            id: format!("codex:{session_id}"),
-            agent: AgentKind::Codex,
-            title: title.unwrap_or_else(|| {
-                format!("Codex session {}", &session_id[..session_id.len().min(8)])
-            }),
-            project_id: project.id,
+        Ok(Some(AiSession::new(
+            AgentKind::Codex,
+            &session_id,
+            title,
             directory,
             created_at_ms,
             updated_at_ms,
-            agent_session_id: session_id.to_string(),
-            status: SessionStatus::Historical,
-            runtime: None,
-        }))
+        )))
     }
 }
 

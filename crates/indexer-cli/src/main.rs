@@ -34,10 +34,7 @@ fn main() -> Result<()> {
 
 fn new_command(args: Vec<String>) -> Result<()> {
     let (agent, cwd) = parse_agent_and_cwd(args, "new")?;
-    let command = match agent {
-        AgentKind::Codex => CommandSpec::new("codex", cwd),
-        AgentKind::OpenCode => CommandSpec::new("opencode", cwd),
-    };
+    let command = CommandSpec::new(agent.command_name(), cwd);
     println!("{}", serde_json::to_string(&command)?);
     Ok(())
 }
@@ -54,18 +51,15 @@ fn parse_agent_and_cwd(
             "--agent" => agent = args.next(),
             "--cwd" => cwd = args.next(),
             "--help" | "-h" => {
-                println!(
-                    "zellij-ai-session-index {command_name} --agent codex|opencode --cwd PATH"
-                );
+                println!("zellij-ai-session-index {command_name} --agent <name> --cwd PATH");
                 return Err(anyhow::anyhow!("help requested"));
             }
             unknown => anyhow::bail!("unknown {command_name} argument: {unknown}"),
         }
     }
     let agent = match agent.as_deref() {
-        Some("codex") => AgentKind::Codex,
-        Some("opencode") => AgentKind::OpenCode,
-        Some(other) => anyhow::bail!("unsupported agent: {other}"),
+        Some(name) => AgentKind::from_command_name(name)
+            .ok_or_else(|| anyhow::anyhow!("unsupported agent: {name}"))?,
         None => anyhow::bail!("missing --agent"),
     };
     let cwd = cwd.ok_or_else(|| anyhow::anyhow!("missing --cwd"))?.into();
@@ -95,17 +89,15 @@ fn resume_command(args: Vec<String>) -> Result<()> {
     let agent = agent.ok_or_else(|| anyhow::anyhow!("missing --agent"))?;
     let session_id = session_id.ok_or_else(|| anyhow::anyhow!("missing --session-id"))?;
     let cwd = cwd.ok_or_else(|| anyhow::anyhow!("missing --cwd"))?.into();
-    let agent = match agent.as_str() {
-        "codex" => AgentKind::Codex,
-        "opencode" => AgentKind::OpenCode,
-        other => anyhow::bail!("unsupported agent: {other}"),
-    };
-    let command = match agent {
-        AgentKind::Codex => CommandSpec::new("codex", cwd).with_args(["resume", &session_id]),
-        AgentKind::OpenCode => {
-            CommandSpec::new("opencode", cwd).with_args(["--session", &session_id])
-        }
-    };
+    let agent = AgentKind::from_command_name(&agent)
+        .ok_or_else(|| anyhow::anyhow!("unsupported agent: {agent}"))?;
+    let mut args: Vec<String> = agent
+        .resume_args()
+        .iter()
+        .map(|arg| arg.to_string())
+        .collect();
+    args.push(session_id);
+    let command = CommandSpec::new(agent.command_name(), cwd).with_args(args);
     println!("{}", serde_json::to_string(&command)?);
     Ok(())
 }

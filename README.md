@@ -1,60 +1,80 @@
 # zellij-ai-session
 
-Project-first session navigator for Codex and OpenCode in Zellij.
+> Project-first session navigator for AI coding agents inside Zellij.
 
-面向 GitHub Release 和预编译产物的发布方案见：[GitHub 发布与一键安装方案](docs/distribution.md)。
+[中文文档](README.zh-CN.md)
 
-## 一键安装
+## Supported Agent TUIs
 
-普通用户无需安装 Rust，直接执行：
+The navigator discovers past sessions from each agent's local store, groups them by project directory, and resumes them with the agent's own CLI. Eight agents are supported out of the box:
+
+| Agent | Session storage | Resume command |
+| --- | --- | --- |
+| [Codex](https://github.com/openai/codex) | `~/.codex/sessions/` (index `~/.codex/session_index.jsonl`) | `codex resume <id>` |
+| [OpenCode](https://opencode.ai) | `~/.local/share/opencode/opencode.db` (XDG) | `opencode --session <id>` |
+| Pi | `~/.pi/agent/sessions/` | `pi --session <path>` |
+| Reasonix | `~/.reasonix/sessions/` | `reasonix --resume <path>` |
+| Codewhale | `~/.codewhale/sessions/` (legacy `~/.deepseek/sessions/`) | `codewhale --resume <id>` |
+| [Claude Code](https://claude.com/claude-code) | `~/.claude/projects/` | `claude --resume <id>` |
+| [Qwen Code](https://github.com/QwenLM/qwen-code) | `~/.qwen/projects/` | `qwen --resume <id>` |
+| [Goose](https://block.github.io/goose/) | `~/.local/share/goose/sessions/sessions.db` (XDG) | `goose session --resume --session-id <id>` |
+
+Environment overrides:
+
+- Codewhale: `CODEWHALE_HOME`
+- Reasonix: `REASONIX_HOME` / `REASONIX_STATE_HOME`
+- Claude Code: `CLAUDE_CONFIG_DIR`
+- Qwen Code: `QWEN_CONFIG_DIR`
+- OpenCode / Goose: `XDG_DATA_HOME`
+
+> Agents whose sessions cannot be mapped to a project directory (e.g. Gemini CLI stores only an irreversible project hash, Aider keeps a per-repo history file, Amazon Q persists state without a documented session list) are intentionally **not** supported, since this tool is directory-first.
+
+Adding a new agent is a two-place change: one `AgentMeta` row in `crates/core/src/lib.rs` plus one `AgentAdapter` implementation (see `crates/indexer/src/`).
+
+## One-line Install
+
+End users need no Rust toolchain — just run:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/snail-vs/zellij-ai-session/main/install.sh | bash
 ```
 
-脚本会自动识别操作系统和 CPU 架构，从 GitHub Release 下载预编译 indexer 和 WASI 插件，并校验 `SHA256SUMS`。
+The script detects OS/CPU, downloads the prebuilt indexer and WASI plugin from GitHub Release, and verifies `SHA256SUMS`.
 
-开发者在源码目录执行：
+Developers building from source run:
 
 ```bash
 ./install.sh --from-source
 ```
 
-安装脚本会自动：
+The installer automatically:
 
-- 下载或构建 indexer 和 Zellij WASI 插件到当前用户目录；
-- 自动创建或更新 `~/.config/zellij/config.kdl`；
-- 配置 `Alt s` 打开或聚焦 AI Sessions；
-- 配置默认在新 tab 中恢复 Session，并关闭插件缓存，升级后直接生效；
-- 修改已有配置前创建 `.bak.zellij-ai-session` 备份。
+- downloads or builds the indexer and Zellij WASI plugin into the user directory;
+- creates or updates `~/.config/zellij/config.kdl`;
+- binds `Alt s` to open/focus AI Sessions;
+- restores sessions in a new tab by default and disables plugin cache so upgrades apply immediately;
+- backs up existing config to `.bak.zellij-ai-session` before editing.
 
-安装完成后重启 Zellij（或重新加载配置），按 `Alt s` 即可打开。
+Restart Zellij (or reload config) afterwards, then press `Alt s`.
 
-常用选项：
+Common options:
 
 ```bash
-# 恢复 Session 到 pane
-./install.sh --open-mode pane
-
-# 使用其他快捷键
-./install.sh --key "Ctrl g"
-
-# 安装指定 Release
-./install.sh --version v0.1.0
-
-# 只构建和安装文件，不修改 Zellij 配置
-./install.sh --no-keybind
+./install.sh --open-mode pane        # restore Session into a pane
+./install.sh --key "Ctrl g"          # use a different key binding
+./install.sh --version v0.1.0        # install a specific Release
+./install.sh --no-keybind            # build & install only, don't touch Zellij config
 ```
 
-卸载：
+Uninstall:
 
 ```bash
 ./uninstall.sh
 ```
 
-卸载会移除安装的 indexer、WASI 插件和脚本管理的快捷键；配置备份会保留，不会删除用户其他配置。
+This removes the installed indexer, WASI plugin and keybinding; config backups are kept and your other Zellij settings are untouched.
 
-默认安装位置：
+Default install locations:
 
 ```text
 ~/.local/bin/zellij-ai-session-index
@@ -62,30 +82,32 @@ curl -fsSL https://raw.githubusercontent.com/snail-vs/zellij-ai-session/main/ins
 ~/.config/zellij/config.kdl
 ```
 
-可以通过 `ZELLIJ_AI_SESSION_BIN_DIR`、`ZELLIJ_AI_SESSION_DATA_DIR` 和 `ZELLIJ_AI_SESSION_CONFIG_FILE` 覆盖这些路径；也可以通过 `ZELLIJ_AI_SESSION_REPO` 和 `ZELLIJ_AI_SESSION_VERSION` 指定 Release 来源和版本。
+Override these with `ZELLIJ_AI_SESSION_BIN_DIR`, `ZELLIJ_AI_SESSION_DATA_DIR`, `ZELLIJ_AI_SESSION_CONFIG_FILE`, and point the Release source/version with `ZELLIJ_AI_SESSION_REPO` / `ZELLIJ_AI_SESSION_VERSION`.
 
-## 使用方式
+See [docs/distribution.md](docs/distribution.md) for the GitHub Release and prebuilt-binary design.
 
-Navigator 内快捷键：
+## Usage
+
+Navigator keybindings:
 
 ```text
-Enter  打开或恢复 Session
-n      新建 Session 并选择 Agent
-x      关闭 runtime，保留历史记录
-/      搜索
-r      手动刷新
-q      关闭 Navigator
+Enter   open or resume a Session
+n       new Session, then pick an Agent
+x       kill the runtime, keep history
+/       search
+r       manual refresh
+q       close the Navigator
 ```
 
-`Enter` 打开已有 runtime 时会聚焦它；历史 Session 会按 `open_mode` 在 tab 或 pane 中恢复。
+`Enter` focuses an already-running runtime, or resumes a historical session in a tab/pane per `open_mode`.
 
-列表标题会优先保持 Agent 自己的标题：Codex 使用 `~/.codex/session_index.jsonl` 中最新的 `thread_name`，OpenCode 使用 SQLite `session.title`；只有缺少原始标题时才使用首条用户消息或默认名称。
+Titles prefer each agent's own label: Codex uses the latest `thread_name` from `~/.codex/session_index.jsonl`; OpenCode uses the SQLite `session.title`; Pi uses `session_info.name` (falling back to the first user message); Reasonix uses the `.meta.json` sidecar's `TopicTitle`/`Preview`; Claude Code / Qwen Code use the first user prompt; Goose uses the session `name` or first user message; Codewhale uses `metadata.title`. A default name is used only when no original title exists.
 
-按 `/` 可以搜索所有项目的会话。搜索范围包括标题、项目、目录和 Agent 名称，支持中文等 Unicode 子串。当前版本暂不搜索对话正文。
+Press `/` to search sessions across all projects. The search covers title, project, directory and agent name, and supports Unicode substrings such as Chinese. Conversation bodies are not searched in the current version.
 
-## 手工构建
+## Manual Build
 
-安装脚本已经覆盖绝大多数场景。需要手工构建时：
+The install script covers almost everything. To build by hand:
 
 ```bash
 cargo build -p zellij-ai-session-index --release
@@ -95,7 +117,7 @@ cargo build -p zellij-ai-session-plugin \
   --release
 ```
 
-插件可以通过 Zellij 配置中的 `indexer` 和 `open_mode` 参数配置：
+The plugin is configured via the `indexer` and `open_mode` parameters in your Zellij config:
 
 ```kdl
 LaunchOrFocusPlugin "file:/absolute/path/to/zellij_ai_session_plugin.wasm" {
@@ -107,7 +129,7 @@ LaunchOrFocusPlugin "file:/absolute/path/to/zellij_ai_session_plugin.wasm" {
 }
 ```
 
-## 验证
+## Verify
 
 ```bash
 cargo fmt --all --check

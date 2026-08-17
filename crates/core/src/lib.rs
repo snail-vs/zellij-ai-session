@@ -9,14 +9,99 @@ pub const SNAPSHOT_VERSION: u32 = 1;
 pub enum AgentKind {
     Codex,
     OpenCode,
+    Pi,
+    Reasonix,
+    Codewhale,
+    Claude,
+    Qwen,
+    Goose,
 }
+
+/// Single source of truth for the mechanical per-agent metadata. Adding a new
+/// agent means adding one row here (plus its `AgentAdapter` implementation).
+pub struct AgentMeta {
+    pub kind: AgentKind,
+    pub command: &'static str,
+    /// Human-readable name shown in the plugin UI, e.g. `"Codex"`.
+    pub display_name: &'static str,
+    /// Arguments inserted before the session id when resuming, e.g. `["resume"]`
+    /// or `["--session"]`.
+    pub resume_args: &'static [&'static str],
+}
+
+pub const AGENT_META: &[AgentMeta] = &[
+    AgentMeta {
+        kind: AgentKind::Codex,
+        command: "codex",
+        display_name: "Codex",
+        resume_args: &["resume"],
+    },
+    AgentMeta {
+        kind: AgentKind::OpenCode,
+        command: "opencode",
+        display_name: "OpenCode",
+        resume_args: &["--session"],
+    },
+    AgentMeta {
+        kind: AgentKind::Pi,
+        command: "pi",
+        display_name: "Pi",
+        resume_args: &["--session"],
+    },
+    AgentMeta {
+        kind: AgentKind::Reasonix,
+        command: "reasonix",
+        display_name: "Reasonix",
+        resume_args: &["--resume"],
+    },
+    AgentMeta {
+        kind: AgentKind::Codewhale,
+        command: "codewhale",
+        display_name: "Codewhale",
+        resume_args: &["--resume"],
+    },
+    AgentMeta {
+        kind: AgentKind::Claude,
+        command: "claude",
+        display_name: "Claude",
+        resume_args: &["--resume"],
+    },
+    AgentMeta {
+        kind: AgentKind::Qwen,
+        command: "qwen",
+        display_name: "Qwen",
+        resume_args: &["--resume"],
+    },
+    AgentMeta {
+        kind: AgentKind::Goose,
+        command: "goose",
+        display_name: "Goose",
+        resume_args: &["session", "--resume", "--session-id"],
+    },
+];
 
 impl AgentKind {
     pub fn command_name(self) -> &'static str {
-        match self {
-            Self::Codex => "codex",
-            Self::OpenCode => "opencode",
-        }
+        AGENT_META
+            .iter()
+            .find(|meta| meta.kind == self)
+            .map(|meta| meta.command)
+            .unwrap()
+    }
+
+    pub fn resume_args(self) -> &'static [&'static str] {
+        AGENT_META
+            .iter()
+            .find(|meta| meta.kind == self)
+            .map(|meta| meta.resume_args)
+            .unwrap()
+    }
+
+    pub fn from_command_name(name: &str) -> Option<Self> {
+        AGENT_META
+            .iter()
+            .find(|meta| meta.command == name)
+            .map(|meta| meta.kind)
     }
 }
 
@@ -69,6 +154,31 @@ pub struct AiSession {
     pub agent_session_id: String,
     pub status: SessionStatus,
     pub runtime: Option<RuntimeRef>,
+}
+
+impl AiSession {
+    pub fn new(
+        agent: AgentKind,
+        agent_session_id: &str,
+        title: String,
+        directory: PathBuf,
+        created_at_ms: Option<i64>,
+        updated_at_ms: Option<i64>,
+    ) -> Self {
+        let project = project_for_directory(&directory);
+        Self {
+            id: format!("{}:{agent_session_id}", agent.command_name()),
+            agent,
+            title,
+            project_id: project.id,
+            directory,
+            created_at_ms,
+            updated_at_ms,
+            agent_session_id: agent_session_id.to_string(),
+            status: SessionStatus::Historical,
+            runtime: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
