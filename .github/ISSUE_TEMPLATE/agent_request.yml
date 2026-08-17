@@ -1,0 +1,54 @@
+name: Agent support request
+description: Propose support for another AI coding-agent CLI
+title: "[Agent]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        New adapters need a reliable project directory, a discoverable local session list, and a documented resume command. Do not attach your real session data.
+  - type: input
+    id: agent
+    attributes:
+      label: Agent name
+    validations:
+      required: true
+  - type: input
+    id: homepage
+    attributes:
+      label: Official project or documentation URL
+    validations:
+      required: true
+  - type: textarea
+    id: storage
+    attributes:
+      label: Local session storage
+      description: Document the default path and format. Use synthetic examples only.
+    validations:
+      required: true
+  - type: textarea
+    id: project
+    attributes:
+      label: Project-directory mapping
+      description: Explain how a stored session can be mapped back to its working directory.
+    validations:
+      required: true
+  - type: input
+    id: resume
+    attributes:
+      label: Resume command
+      placeholder: agent --resume <session-id>
+    validations:
+      required: true
+  - type: input
+    id: new
+    attributes:
+      label: New-session command
+      placeholder: agent
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Known limitations or environment overrides

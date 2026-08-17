@@ -1,23 +1,104 @@
 # zellij-ai-session
 
-> Zellij 的 AI Session 导航器，统一浏览、搜索、恢复和管理各类 AI 编码 Agent 会话（Codex、OpenCode、Claude Code、Qwen Code、Goose 等），支持一键安装。
+> 在 Zellij 中按项目统一查找和恢复各类 AI 编码 Agent 会话。
+
+[![CI](https://github.com/snail-vs/zellij-ai-session/actions/workflows/ci.yml/badge.svg)](https://github.com/snail-vs/zellij-ai-session/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/snail-vs/zellij-ai-session)](https://github.com/snail-vs/zellij-ai-session/releases/latest)
+[![License](https://img.shields.io/github/license/snail-vs/zellij-ai-session)](LICENSE)
 
 [English](README.md)
 
-## 支持的 Agent TUI
+![打开 zellij-ai-session、选择项目、搜索并恢复会话](docs/demo.gif)
 
-本导航器会从各 Agent 的本地存储中发现历史会话，按项目目录分组，并用对应 Agent 的 CLI 恢复。开箱支持以下 8 种：
+Codex、OpenCode、Claude Code 等 Agent CLI 分别保存自己的会话历史。`zellij-ai-session` 会发现这些已有的本地会话，按项目目录统一分组，让用户可以从一个入口搜索并继续之前的工作。
 
-| Agent | 会话存储路径 | 恢复命令 |
+它不替代 Agent，也不迁移会话历史。按下 `Alt s`，选择项目后按 `Enter`；导航器会聚焦正在运行的会话，或者通过原 Agent CLI 恢复历史会话。
+
+## 核心特点
+
+- **项目优先：** 同一项目即使混用多个 Agent，工作记录仍聚合在一起。
+- **多 Agent：** 开箱支持 8 种 Agent 会话格式。
+- **一个动作继续工作：** `Enter` 既可聚焦运行中的会话，也可恢复历史会话。
+- **本地处理：** 会话发现和搜索均在本机完成，不需要账号或云端服务。
+- **预编译安装：** Linux 和 macOS 用户无需安装 Rust 工具链。
+
+## 快速开始
+
+前提条件：
+
+- 已安装 Zellij，并且可以从 `PATH` 调用；
+- 至少有一个受支持的 Agent CLI 和已有会话。
+
+安装最新版本：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/snail-vs/zellij-ai-session/main/install.sh | bash
+```
+
+安装脚本会下载预编译产物、校验 `SHA256SUMS`，并配置 `Alt s` 快捷键。安装后重启 Zellij 或重新加载配置，再按 `Alt s`。
+
+如果希望先检查脚本并固定版本：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/snail-vs/zellij-ai-session/v0.1.6/install.sh \
+  -o /tmp/zellij-ai-session-install.sh
+less /tmp/zellij-ai-session-install.sh
+bash /tmp/zellij-ai-session-install.sh --version v0.1.6
+```
+
+安装脚本会：
+
+- 将原生 indexer 和 Zellij WASI 插件安装到当前用户目录；
+- 创建或更新 `~/.config/zellij/config.kdl`；
+- 绑定 `Alt s`，用于打开或聚焦导航器；
+- 默认在新 tab 中恢复会话；
+- 修改已有配置前备份为 `.bak.zellij-ai-session`。
+
+常用选项：
+
+```bash
+./install.sh --open-mode pane        # 在 pane 而非 tab 中恢复
+./install.sh --key "Ctrl g"          # 使用其他快捷键
+./install.sh --version v0.1.6        # 安装指定版本
+./install.sh --no-keybind            # 安装文件但不修改 Zellij 配置
+./install.sh --from-source           # 从源码构建，需要 Rust
+```
+
+卸载：
+
+```bash
+./uninstall.sh
+```
+
+卸载会移除 indexer、WASI 插件和脚本管理的快捷键；配置备份和 Agent 会话历史会保留。
+
+## 使用方式
+
+```text
+Enter   打开或恢复会话
+n       新建会话并选择 Agent
+x       关闭 runtime，保留 Agent 历史
+/       搜索所有已发现会话
+r       刷新索引
+q       关闭导航器
+```
+
+存在匹配的 Zellij runtime 时，`Enter` 会直接聚焦；否则会根据 `open_mode`，在 tab 或 pane 中执行对应 Agent 的原生恢复命令。
+
+搜索范围包括会话标题、项目、目录和 Agent 名称，支持中文等 Unicode 子串。
+
+## 支持的 Agent
+
+| Agent | 本地会话存储 | 恢复命令 |
 | --- | --- | --- |
-| Codex | `~/.codex/sessions/`（索引 `~/.codex/session_index.jsonl`） | `codex resume <id>` |
-| OpenCode | `~/.local/share/opencode/opencode.db`（XDG） | `opencode --session <id>` |
+| [Codex](https://github.com/openai/codex) | `~/.codex/sessions/` 和 `~/.codex/session_index.jsonl` | `codex resume <id>` |
+| [OpenCode](https://opencode.ai) | `~/.local/share/opencode/opencode.db`（XDG） | `opencode --session <id>` |
 | Pi | `~/.pi/agent/sessions/` | `pi --session <path>` |
 | Reasonix | `~/.reasonix/sessions/` | `reasonix --resume <path>` |
-| Codewhale | `~/.codewhale/sessions/`（旧版 `~/.deepseek/sessions/`） | `codewhale --resume <id>` |
-| Claude Code | `~/.claude/projects/` | `claude --resume <id>` |
-| Qwen Code | `~/.qwen/projects/` | `qwen --resume <id>` |
-| Goose | `~/.local/share/goose/sessions/sessions.db`（XDG） | `goose session --resume --session-id <id>` |
+| Codewhale | `~/.codewhale/sessions/` 或旧版 `~/.deepseek/sessions/` | `codewhale --resume <id>` |
+| [Claude Code](https://claude.com/claude-code) | `~/.claude/projects/` | `claude --resume <id>` |
+| [Qwen Code](https://github.com/QwenLM/qwen-code) | `~/.qwen/projects/` | `qwen --resume <id>` |
+| [Goose](https://block.github.io/goose/) | `~/.local/share/goose/sessions/sessions.db`（XDG） | `goose session --resume --session-id <id>` |
 
 环境变量覆盖：
 
@@ -27,52 +108,29 @@
 - Qwen Code：`QWEN_CONFIG_DIR`
 - OpenCode / Goose：`XDG_DATA_HOME`
 
-> Gemini CLI、Aider、Amazon Q 等因无法映射到项目目录（例如 Gemini 只存不可逆的 project hash、Aider 把历史放在各仓库目录、Amazon Q 无公开会话列表），不符合「以目录为中心」的设计，故**未**支持。
+无法稳定地将历史会话映射回项目目录的 Agent，不会加入默认注册表。可以通过 [Agent 请求模板](https://github.com/snail-vs/zellij-ai-session/issues/new/choose) 提议新的适配。
 
-新增 Agent 只需两处改动：在 `crates/core/src/lib.rs` 加一行 `AgentMeta`，再实现一个 `AgentAdapter`（参考 `crates/indexer/src/`）。
+## 隐私与安全
 
-## 一键安装
+- Indexer 会读取受支持 Agent 的本地会话元数据。当 Agent 没有提供会话标题时，部分适配器会读取第一条用户消息作为备选标题。
+- 会话数据仅在本机处理；程序没有遥测功能，也不会上传提示词或会话历史。
+- 安装脚本只会通过网络从 GitHub 获取 Release 元数据、二进制文件和校验和。
+- 恢复会话时，会以对应 Agent 原有的权限和配置启动其 CLI。
+- 按 `x` 只关闭匹配的 Zellij runtime，不会删除 Agent 保存的历史会话。
+- 安装脚本修改 Zellij 配置前会创建备份；如果希望手动配置，请使用 `--no-keybind`。
 
-普通用户无需安装 Rust，直接执行：
+提交问题时不要附加未经处理的会话文件或提示词。请从日志和配置片段中删除用户名、主目录路径、仓库名称及密钥。
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/snail-vs/zellij-ai-session/main/install.sh | bash
-```
+## 兼容性
 
-脚本会自动识别操作系统和 CPU 架构，从 GitHub Release 下载预编译 indexer 和 WASI 插件，并校验 `SHA256SUMS`。
+Release 提供以下预编译产物：
 
-开发者在源码目录执行：
+- Linux：`x86_64`、`aarch64`
+- macOS：Intel `x86_64`、Apple Silicon `aarch64`
 
-```bash
-./install.sh --from-source
-```
+当前插件基于 Zellij `0.44.3` Plugin API 构建。如果遇到兼容问题，请在 Bug 报告中注明 Zellij 版本、操作系统、CPU 架构和受影响的 Agent。
 
-安装脚本会自动：
-
-- 下载或构建 indexer 和 Zellij WASI 插件到当前用户目录；
-- 自动创建或更新 `~/.config/zellij/config.kdl`；
-- 配置 `Alt s` 打开或聚焦 AI Sessions；
-- 默认在新 tab 中恢复 Session，并关闭插件缓存，升级后直接生效；
-- 修改已有配置前创建 `.bak.zellij-ai-session` 备份。
-
-安装完成后重启 Zellij（或重新加载配置），按 `Alt s` 即可打开。
-
-常用选项：
-
-```bash
-./install.sh --open-mode pane        # 恢复 Session 到 pane
-./install.sh --key "Ctrl g"          # 使用其他快捷键
-./install.sh --version v0.1.0        # 安装指定 Release
-./install.sh --no-keybind            # 只构建和安装文件，不修改 Zellij 配置
-```
-
-卸载：
-
-```bash
-./uninstall.sh
-```
-
-卸载会移除安装的 indexer、WASI 插件和脚本管理的快捷键；配置备份会保留，不会删除用户其他配置。
+## 配置
 
 默认安装位置：
 
@@ -82,42 +140,9 @@ curl -fsSL https://raw.githubusercontent.com/snail-vs/zellij-ai-session/main/ins
 ~/.config/zellij/config.kdl
 ```
 
-可以通过 `ZELLIJ_AI_SESSION_BIN_DIR`、`ZELLIJ_AI_SESSION_DATA_DIR` 和 `ZELLIJ_AI_SESSION_CONFIG_FILE` 覆盖这些路径；也可以通过 `ZELLIJ_AI_SESSION_REPO` 和 `ZELLIJ_AI_SESSION_VERSION` 指定 Release 来源和版本。
+可通过 `ZELLIJ_AI_SESSION_BIN_DIR`、`ZELLIJ_AI_SESSION_DATA_DIR` 和 `ZELLIJ_AI_SESSION_CONFIG_FILE` 修改路径；通过 `ZELLIJ_AI_SESSION_REPO` 和 `ZELLIJ_AI_SESSION_VERSION` 选择 Release 来源及版本。
 
-面向 GitHub Release 和预编译产物的发布方案见 [docs/distribution.md](docs/distribution.md)。
-
-## 使用方式
-
-导航器内快捷键：
-
-```text
-Enter   打开或恢复 Session
-n       新建 Session 并选择 Agent
-x       关闭 runtime，保留历史记录
-/       搜索
-r       手动刷新
-q       关闭 Navigator
-```
-
-`Enter` 打开已有 runtime 时会聚焦它；历史 Session 会按 `open_mode` 在 tab 或 pane 中恢复。
-
-列表标题会优先保持 Agent 自己的标题：Codex 使用 `~/.codex/session_index.jsonl` 中最新的 `thread_name`，OpenCode 使用 SQLite `session.title`，Pi 使用会话文件里的 `session_info.name`（退回首条用户消息），Reasonix 使用 `.meta.json` sidecar 的 `TopicTitle`/`Preview`（退回首条用户消息），Claude Code / Qwen Code 使用首条用户提示，Goose 使用会话名或首条用户消息，Codewhale 使用 `metadata.title`。缺少原始标题时才使用默认名称。
-
-按 `/` 可以搜索所有项目的会话。搜索范围包括标题、项目、目录和 Agent 名称，支持中文等 Unicode 子串。当前版本暂不搜索对话正文。
-
-## 手工构建
-
-安装脚本已经覆盖绝大多数场景。需要手工构建时：
-
-```bash
-cargo build -p zellij-ai-session-index --release
-cargo build -p zellij-ai-session-plugin \
-  --target wasm32-wasip1 \
-  --features wasm \
-  --release
-```
-
-插件可以通过 Zellij 配置中的 `indexer` 和 `open_mode` 参数配置：
+手工配置 Zellij：
 
 ```kdl
 LaunchOrFocusPlugin "file:/absolute/path/to/zellij_ai_session_plugin.wasm" {
@@ -129,7 +154,21 @@ LaunchOrFocusPlugin "file:/absolute/path/to/zellij_ai_session_plugin.wasm" {
 }
 ```
 
-## 验证
+Release 产物设计参见 [docs/distribution.md](docs/distribution.md)。
+
+## 开发
+
+从源码构建：
+
+```bash
+cargo build -p zellij-ai-session-index --release
+cargo build -p zellij-ai-session-plugin \
+  --target wasm32-wasip1 \
+  --features wasm \
+  --release
+```
+
+验证改动：
 
 ```bash
 cargo fmt --all --check
@@ -138,3 +177,9 @@ cargo check -p zellij-ai-session-plugin \
   --target wasm32-wasip1 \
   --features wasm
 ```
+
+新增 Agent 需要在 `crates/core/src/lib.rs` 增加一行 `AgentMeta` 注册信息，并在 `crates/indexer/src/` 下实现一个 `AgentAdapter`。提交 PR 前请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。
+
+## 许可证
+
+[MIT](LICENSE)
