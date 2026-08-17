@@ -1,20 +1,106 @@
 # zellij-ai-session
 
-> Project-first session navigator for AI coding agents inside Zellij.
+> Find and resume any AI coding session by project, directly inside Zellij.
+
+[![CI](https://github.com/snail-vs/zellij-ai-session/actions/workflows/ci.yml/badge.svg)](https://github.com/snail-vs/zellij-ai-session/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/snail-vs/zellij-ai-session)](https://github.com/snail-vs/zellij-ai-session/releases/latest)
+[![License](https://img.shields.io/github/license/snail-vs/zellij-ai-session)](LICENSE)
 
 [中文文档](README.zh-CN.md)
 
-## Supported Agent TUIs
+<!--
+Demo GIF insertion point. Add the final recording as docs/demo.gif, then replace
+this comment with:
 
-The navigator discovers past sessions from each agent's local store, groups them by project directory, and resumes them with the agent's own CLI. Eight agents are supported out of the box:
+![Open zellij-ai-session, select a project, search, and resume a session](docs/demo.gif)
+-->
 
-| Agent | Session storage | Resume command |
+Codex, OpenCode, Claude Code and other agent CLIs each keep their own session history. `zellij-ai-session` discovers those existing local sessions, groups them by project directory, and gives you one place to search and continue the work.
+
+It does not replace your agents or migrate their history. Press `Alt s`, choose the project, and press `Enter`; the navigator focuses a running session or resumes a historical one with the original agent CLI.
+
+## Highlights
+
+- **Project-first:** work is grouped by directory, even when one project uses several agents.
+- **Multi-agent:** eight agent session formats are supported out of the box.
+- **One action to continue:** the same `Enter` action focuses a running session or resumes history.
+- **Local by design:** session discovery and search run on your machine; no account or cloud service is required.
+- **Ready-to-install binaries:** Linux and macOS users do not need a Rust toolchain.
+
+## Quick Start
+
+Prerequisites:
+
+- Zellij installed and available on `PATH`;
+- at least one supported agent CLI with an existing session.
+
+Install the latest release:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/snail-vs/zellij-ai-session/main/install.sh | bash
+```
+
+The installer downloads prebuilt release assets, verifies `SHA256SUMS`, and configures `Alt s`. Restart Zellij or reload its configuration, then press `Alt s`.
+
+If you prefer to inspect and pin the installer before running it:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/snail-vs/zellij-ai-session/v0.1.6/install.sh \
+  -o /tmp/zellij-ai-session-install.sh
+less /tmp/zellij-ai-session-install.sh
+bash /tmp/zellij-ai-session-install.sh --version v0.1.6
+```
+
+The installer:
+
+- installs the native indexer and Zellij WASI plugin in the current user's directories;
+- creates or updates `~/.config/zellij/config.kdl`;
+- binds `Alt s` to open or focus the navigator;
+- opens resumed sessions in a new tab by default;
+- backs up an existing config as `.bak.zellij-ai-session` before changing it.
+
+Common options:
+
+```bash
+./install.sh --open-mode pane        # resume into a pane instead of a tab
+./install.sh --key "Ctrl g"          # use a different key binding
+./install.sh --version v0.1.6        # install a specific release
+./install.sh --no-keybind            # install files without editing Zellij config
+./install.sh --from-source           # build locally; requires Rust
+```
+
+Uninstall:
+
+```bash
+./uninstall.sh
+```
+
+Uninstall removes the installed indexer, WASI plugin and managed keybinding. It keeps configuration backups and does not remove agent history.
+
+## Usage
+
+```text
+Enter   open or resume a session
+n       create a session, then choose an agent
+x       close the runtime, keep agent history
+/       search all discovered sessions
+r       refresh the index
+q       close the navigator
+```
+
+`Enter` focuses a matching Zellij runtime when one exists. Otherwise it starts the agent's native resume command in a tab or pane according to `open_mode`.
+
+Search covers session title, project, directory and agent name, including Unicode substrings such as Chinese text.
+
+## Supported Agents
+
+| Agent | Local session store | Resume command |
 | --- | --- | --- |
-| [Codex](https://github.com/openai/codex) | `~/.codex/sessions/` (index `~/.codex/session_index.jsonl`) | `codex resume <id>` |
+| [Codex](https://github.com/openai/codex) | `~/.codex/sessions/` and `~/.codex/session_index.jsonl` | `codex resume <id>` |
 | [OpenCode](https://opencode.ai) | `~/.local/share/opencode/opencode.db` (XDG) | `opencode --session <id>` |
 | Pi | `~/.pi/agent/sessions/` | `pi --session <path>` |
 | Reasonix | `~/.reasonix/sessions/` | `reasonix --resume <path>` |
-| Codewhale | `~/.codewhale/sessions/` (legacy `~/.deepseek/sessions/`) | `codewhale --resume <id>` |
+| Codewhale | `~/.codewhale/sessions/` or legacy `~/.deepseek/sessions/` | `codewhale --resume <id>` |
 | [Claude Code](https://claude.com/claude-code) | `~/.claude/projects/` | `claude --resume <id>` |
 | [Qwen Code](https://github.com/QwenLM/qwen-code) | `~/.qwen/projects/` | `qwen --resume <id>` |
 | [Goose](https://block.github.io/goose/) | `~/.local/share/goose/sessions/sessions.db` (XDG) | `goose session --resume --session-id <id>` |
@@ -27,52 +113,29 @@ Environment overrides:
 - Qwen Code: `QWEN_CONFIG_DIR`
 - OpenCode / Goose: `XDG_DATA_HOME`
 
-> Agents whose sessions cannot be mapped to a project directory (e.g. Gemini CLI stores only an irreversible project hash, Aider keeps a per-repo history file, Amazon Q persists state without a documented session list) are intentionally **not** supported, since this tool is directory-first.
+Agents that cannot reliably map stored history back to a project directory are intentionally excluded from the default registry. New agents can be proposed with the [agent request template](https://github.com/snail-vs/zellij-ai-session/issues/new/choose).
 
-Adding a new agent is a two-place change: one `AgentMeta` row in `crates/core/src/lib.rs` plus one `AgentAdapter` implementation (see `crates/indexer/src/`).
+## Privacy and Safety
 
-## One-line Install
+- The indexer reads supported agents' local session metadata. Some adapters inspect the first user message when an agent does not provide a session title.
+- Session data is processed locally. The application has no telemetry and does not upload prompts or history.
+- The installer uses the network only to retrieve release metadata, binaries and checksums from GitHub.
+- Resuming a session launches the corresponding agent CLI with that agent's normal permissions and configuration.
+- Pressing `x` closes the matching Zellij runtime; it does not delete the agent's stored session history.
+- Before editing Zellij configuration, the installer creates a backup. Use `--no-keybind` when you want to configure the plugin manually.
 
-End users need no Rust toolchain — just run:
+When reporting a problem, do not attach raw session files or prompts. Redact usernames, home-directory paths, repository names and secrets from logs or configuration snippets.
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/snail-vs/zellij-ai-session/main/install.sh | bash
-```
+## Compatibility
 
-The script detects OS/CPU, downloads the prebuilt indexer and WASI plugin from GitHub Release, and verifies `SHA256SUMS`.
+Release binaries are published for:
 
-Developers building from source run:
+- Linux: `x86_64`, `aarch64`
+- macOS: Intel `x86_64`, Apple Silicon `aarch64`
 
-```bash
-./install.sh --from-source
-```
+The current plugin is built against the Zellij `0.44.3` plugin API. If you encounter a compatibility problem, open a bug report with the Zellij version, operating system, architecture and affected agent.
 
-The installer automatically:
-
-- downloads or builds the indexer and Zellij WASI plugin into the user directory;
-- creates or updates `~/.config/zellij/config.kdl`;
-- binds `Alt s` to open/focus AI Sessions;
-- restores sessions in a new tab by default and disables plugin cache so upgrades apply immediately;
-- backs up existing config to `.bak.zellij-ai-session` before editing.
-
-Restart Zellij (or reload config) afterwards, then press `Alt s`.
-
-Common options:
-
-```bash
-./install.sh --open-mode pane        # restore Session into a pane
-./install.sh --key "Ctrl g"          # use a different key binding
-./install.sh --version v0.1.0        # install a specific Release
-./install.sh --no-keybind            # build & install only, don't touch Zellij config
-```
-
-Uninstall:
-
-```bash
-./uninstall.sh
-```
-
-This removes the installed indexer, WASI plugin and keybinding; config backups are kept and your other Zellij settings are untouched.
+## Configuration
 
 Default install locations:
 
@@ -82,42 +145,9 @@ Default install locations:
 ~/.config/zellij/config.kdl
 ```
 
-Override these with `ZELLIJ_AI_SESSION_BIN_DIR`, `ZELLIJ_AI_SESSION_DATA_DIR`, `ZELLIJ_AI_SESSION_CONFIG_FILE`, and point the Release source/version with `ZELLIJ_AI_SESSION_REPO` / `ZELLIJ_AI_SESSION_VERSION`.
+Override these with `ZELLIJ_AI_SESSION_BIN_DIR`, `ZELLIJ_AI_SESSION_DATA_DIR` and `ZELLIJ_AI_SESSION_CONFIG_FILE`. Use `ZELLIJ_AI_SESSION_REPO` and `ZELLIJ_AI_SESSION_VERSION` to select the release source and version.
 
-See [docs/distribution.md](docs/distribution.md) for the GitHub Release and prebuilt-binary design.
-
-## Usage
-
-Navigator keybindings:
-
-```text
-Enter   open or resume a Session
-n       new Session, then pick an Agent
-x       kill the runtime, keep history
-/       search
-r       manual refresh
-q       close the Navigator
-```
-
-`Enter` focuses an already-running runtime, or resumes a historical session in a tab/pane per `open_mode`.
-
-Titles prefer each agent's own label: Codex uses the latest `thread_name` from `~/.codex/session_index.jsonl`; OpenCode uses the SQLite `session.title`; Pi uses `session_info.name` (falling back to the first user message); Reasonix uses the `.meta.json` sidecar's `TopicTitle`/`Preview`; Claude Code / Qwen Code use the first user prompt; Goose uses the session `name` or first user message; Codewhale uses `metadata.title`. A default name is used only when no original title exists.
-
-Press `/` to search sessions across all projects. The search covers title, project, directory and agent name, and supports Unicode substrings such as Chinese. Conversation bodies are not searched in the current version.
-
-## Manual Build
-
-The install script covers almost everything. To build by hand:
-
-```bash
-cargo build -p zellij-ai-session-index --release
-cargo build -p zellij-ai-session-plugin \
-  --target wasm32-wasip1 \
-  --features wasm \
-  --release
-```
-
-The plugin is configured via the `indexer` and `open_mode` parameters in your Zellij config:
+Manual Zellij configuration:
 
 ```kdl
 LaunchOrFocusPlugin "file:/absolute/path/to/zellij_ai_session_plugin.wasm" {
@@ -129,7 +159,21 @@ LaunchOrFocusPlugin "file:/absolute/path/to/zellij_ai_session_plugin.wasm" {
 }
 ```
 
-## Verify
+See [docs/distribution.md](docs/distribution.md) for the release artifact design.
+
+## Development
+
+Build from source:
+
+```bash
+cargo build -p zellij-ai-session-index --release
+cargo build -p zellij-ai-session-plugin \
+  --target wasm32-wasip1 \
+  --features wasm \
+  --release
+```
+
+Verify changes:
 
 ```bash
 cargo fmt --all --check
@@ -138,3 +182,9 @@ cargo check -p zellij-ai-session-plugin \
   --target wasm32-wasip1 \
   --features wasm
 ```
+
+Adding an agent requires one `AgentMeta` registry row in `crates/core/src/lib.rs` and one `AgentAdapter` implementation under `crates/indexer/src/`. See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
+
+## License
+
+[MIT](LICENSE)

@@ -1,0 +1,35 @@
+name: Feature request
+description: Suggest an improvement to navigation, search, runtime handling, or installation
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or workflow
+      description: Describe the concrete workflow that is difficult today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Explain what you expect zellij-ai-session to do.
+    validations:
+      required: true
+  - type: input
+    id: agents
+    attributes:
+      label: Relevant agents
+      placeholder: All agents, Codex, OpenCode, Claude Code...
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: checkboxes
+    id: model
+    attributes:
+      label: Product model
+      options:
+        - label: This request keeps projects as the primary navigation context.
