@@ -6,9 +6,10 @@ mod plugin {
     use std::collections::BTreeMap;
     use std::path::PathBuf;
 
+    use chrono::{Local, TimeZone, Utc};
     use zellij_ai_session_core::{
-        AiSession, CommandSpec, IndexSnapshot, ProjectSummary, RuntimeConfidence, RuntimeRef,
-        SessionStatus, search_key,
+        AiSession, CommandSpec, IndexSnapshot, ProjectSort, ProjectSummary, RuntimeConfidence,
+        RuntimeRef, SessionSort, SessionStatus, search_key, sort_projects, sort_sessions,
     };
     use zellij_tile::prelude::*;
 
@@ -105,11 +106,12 @@ mod plugin {
             println!();
 
             let viewport = rows.saturating_sub(7).max(1);
+            let now_ms = Utc::now().timestamp_millis();
             self.ensure_visible(viewport);
             match self.view {
-                View::Projects => self.render_projects(viewport),
-                View::Sessions => self.render_sessions(viewport),
-                View::Search => self.render_search(viewport),
+                View::Projects => self.render_projects(viewport, now_ms),
+                View::Sessions => self.render_sessions(viewport, now_ms),
+                View::Search => self.render_search(viewport, now_ms),
                 View::NewSession => self.render_new_session(viewport),
             }
 
@@ -507,10 +509,13 @@ mod plugin {
         }
 
         fn projects(&self) -> Vec<ProjectSummary> {
-            self.snapshot
+            let mut projects = self
+                .snapshot
                 .as_ref()
                 .map(|snapshot| snapshot.projects.clone())
-                .unwrap_or_default()
+                .unwrap_or_default();
+            sort_projects(&mut projects, ProjectSort::LatestSessionUpdatedDesc);
+            projects
         }
 
         fn sessions_for_current_project(&self) -> Vec<AiSession> {
@@ -520,12 +525,14 @@ mod plugin {
             let Some(project_id) = &self.project_id else {
                 return Vec::new();
             };
-            snapshot
+            let mut sessions: Vec<AiSession> = snapshot
                 .sessions
                 .iter()
                 .filter(|session| &session.project_id == project_id)
                 .cloned()
-                .collect()
+                .collect();
+            sort_sessions(&mut sessions, SessionSort::UpdatedDesc);
+            sessions
         }
 
         fn search_results(&self) -> Vec<AiSession> {
@@ -533,7 +540,7 @@ mod plugin {
                 return Vec::new();
             };
             let query = search_key(self.search_query.trim());
-            snapshot
+            let mut sessions: Vec<AiSession> = snapshot
                 .sessions
                 .iter()
                 .filter(|session| {
@@ -551,7 +558,9 @@ mod plugin {
                         || search_key(project_name).contains(&query)
                 })
                 .cloned()
-                .collect()
+                .collect();
+            sort_sessions(&mut sessions, SessionSort::UpdatedDesc);
+            sessions
         }
 
         fn move_selection(&mut self, delta: isize) {
@@ -604,7 +613,7 @@ mod plugin {
             start..(start + viewport).min(len)
         }
 
-        fn render_projects(&self, viewport: usize) {
+        fn render_projects(&self, viewport: usize, now_ms: i64) {
             println!("Projects");
             let projects = self.projects();
             if projects.is_empty() {
@@ -630,13 +639,16 @@ mod plugin {
                     String::new()
                 };
                 println!(
-                    "{marker} {:<28} {:>3}{}",
-                    summary.project.name, summary.session_count, running
+                    "{marker} {:<28} {:>3}{}  {}",
+                    summary.project.name,
+                    summary.session_count,
+                    running,
+                    format_updated_at(summary.latest_updated_at_ms, now_ms)
                 );
             }
         }
 
-        fn render_sessions(&self, viewport: usize) {
+        fn render_sessions(&self, viewport: usize, now_ms: i64) {
             let name = self.project_id.as_deref().unwrap_or("Project");
             println!("{name}");
             let sessions = self.sessions_for_current_project();
@@ -647,16 +659,17 @@ mod plugin {
                 .take(viewport)
             {
                 println!(
-                    "{} {} {:<10} {}",
+                    "{} {} {:<10} {}  {}",
                     if index == self.selected { ">" } else { " " },
                     status_marker(session),
                     session.agent,
-                    session.title
+                    session.title,
+                    format_updated_at(session.updated_at_ms, now_ms)
                 );
             }
         }
 
-        fn render_search(&self, viewport: usize) {
+        fn render_search(&self, viewport: usize, now_ms: i64) {
             println!("Search: {}", self.search_query);
             let sessions = self.search_results();
             if sessions.is_empty() {
@@ -669,11 +682,12 @@ mod plugin {
                 .take(viewport)
             {
                 println!(
-                    "{} {} {:<10} {} [{}]",
+                    "{} {} {:<10} {}  {} [{}]",
                     if index == self.selected { ">" } else { " " },
                     status_marker(session),
                     session.agent,
                     session.title,
+                    format_updated_at(session.updated_at_ms, now_ms),
                     session.directory.display()
                 );
             }
@@ -702,6 +716,39 @@ mod plugin {
             SessionStatus::Running => "●",
             SessionStatus::Historical => "○",
         }
+    }
+
+    fn format_updated_at(updated_at_ms: Option<i64>, now_ms: i64) -> String {
+        let Some(updated_at_ms) = updated_at_ms else {
+            return "时间未知".into();
+        };
+
+        let elapsed_ms = now_ms.saturating_sub(updated_at_ms);
+        if elapsed_ms >= 0 {
+            let minutes = elapsed_ms / 60_000;
+            if minutes == 0 {
+                return "刚刚".into();
+            }
+            if minutes < 60 {
+                return format!("{minutes}分钟前");
+            }
+
+            let hours = minutes / 60;
+            if hours < 24 {
+                return format!("{hours}小时前");
+            }
+
+            let days = hours / 24;
+            if days < 7 {
+                return format!("{days}天前");
+            }
+        }
+
+        Local
+            .timestamp_millis_opt(updated_at_ms)
+            .single()
+            .map(|datetime| datetime.format("%Y-%m-%d %H:%M").to_string())
+            .unwrap_or_else(|| "时间未知".into())
     }
 
     fn command_error(stderr: Vec<u8>) -> String {

@@ -37,13 +37,13 @@ curl -fsSL https://raw.githubusercontent.com/snail-vs/zellij-ai-session/main/ins
 
 安装脚本会下载预编译产物、校验 `SHA256SUMS`，并配置 `Alt s` 快捷键。安装后重启 Zellij 或重新加载配置，再按 `Alt s`。
 
-如果希望先检查脚本并固定版本：
+如果希望先检查脚本再安装最新版本：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/snail-vs/zellij-ai-session/v0.1.6/install.sh \
+curl -fsSL https://raw.githubusercontent.com/snail-vs/zellij-ai-session/main/install.sh \
   -o /tmp/zellij-ai-session-install.sh
 less /tmp/zellij-ai-session-install.sh
-bash /tmp/zellij-ai-session-install.sh --version v0.1.6
+bash /tmp/zellij-ai-session-install.sh --version latest
 ```
 
 安装脚本会：
@@ -59,7 +59,7 @@ bash /tmp/zellij-ai-session-install.sh --version v0.1.6
 ```bash
 ./install.sh --open-mode pane        # 在 pane 而非 tab 中恢复
 ./install.sh --key "Ctrl g"          # 使用其他快捷键
-./install.sh --version v0.1.6        # 安装指定版本
+./install.sh --version latest       # 安装最新版本
 ./install.sh --no-keybind            # 安装文件但不修改 Zellij 配置
 ./install.sh --from-source           # 从源码构建，需要 Rust
 ```

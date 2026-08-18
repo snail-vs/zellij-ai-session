@@ -16,6 +16,7 @@ default = []
 wasm = ["dep:zellij-tile"]
 
 [dependencies]
+chrono.workspace = true
 serde_json.workspace = true
 zellij-ai-session-core = { path = "../core" }
 zellij-tile = { workspace = true, optional = true }

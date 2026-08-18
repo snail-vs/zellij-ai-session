@@ -2627,6 +2627,7 @@ dependencies = [
 name = "zellij-ai-session-plugin"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "serde_json",
  "zellij-ai-session-core",
  "zellij-tile",

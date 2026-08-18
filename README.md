@@ -37,13 +37,13 @@ curl -fsSL https://raw.githubusercontent.com/snail-vs/zellij-ai-session/main/ins
 
 The installer downloads prebuilt release assets, verifies `SHA256SUMS`, and configures `Alt s`. Restart Zellij or reload its configuration, then press `Alt s`.
 
-If you prefer to inspect and pin the installer before running it:
+If you prefer to inspect the installer before running it:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/snail-vs/zellij-ai-session/v0.1.6/install.sh \
+curl -fsSL https://raw.githubusercontent.com/snail-vs/zellij-ai-session/main/install.sh \
   -o /tmp/zellij-ai-session-install.sh
 less /tmp/zellij-ai-session-install.sh
-bash /tmp/zellij-ai-session-install.sh --version v0.1.6
+bash /tmp/zellij-ai-session-install.sh --version latest
 ```
 
 The installer:
@@ -59,7 +59,7 @@ Common options:
 ```bash
 ./install.sh --open-mode pane        # resume into a pane instead of a tab
 ./install.sh --key "Ctrl g"          # use a different key binding
-./install.sh --version v0.1.6        # install a specific release
+./install.sh --version latest       # install the latest release
 ./install.sh --no-keybind            # install files without editing Zellij config
 ./install.sh --from-source           # build locally; requires Rust
 ```

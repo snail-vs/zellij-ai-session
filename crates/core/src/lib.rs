@@ -189,6 +189,16 @@ pub struct ProjectSummary {
     pub latest_updated_at_ms: Option<i64>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionSort {
+    UpdatedDesc,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProjectSort {
+    LatestSessionUpdatedDesc,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IndexSnapshot {
     pub version: u32,
@@ -272,7 +282,7 @@ pub fn search_key(value: &str) -> String {
 }
 
 pub fn build_snapshot(mut sessions: Vec<AiSession>, warnings: Vec<String>) -> IndexSnapshot {
-    sessions.sort_by(|left, right| session_sort_key(left).cmp(&session_sort_key(right)));
+    sort_sessions(&mut sessions, SessionSort::UpdatedDesc);
 
     let mut projects: Vec<ProjectSummary> = Vec::new();
     for session in &sessions {
@@ -298,18 +308,7 @@ pub fn build_snapshot(mut sessions: Vec<AiSession>, warnings: Vec<String>) -> In
         });
     }
 
-    projects.sort_by(|left, right| {
-        right
-            .running_count
-            .cmp(&left.running_count)
-            .then_with(|| right.latest_updated_at_ms.cmp(&left.latest_updated_at_ms))
-            .then_with(|| {
-                left.project
-                    .name
-                    .to_lowercase()
-                    .cmp(&right.project.name.to_lowercase())
-            })
-    });
+    sort_projects(&mut projects, ProjectSort::LatestSessionUpdatedDesc);
 
     IndexSnapshot {
         version: SNAPSHOT_VERSION,
@@ -320,12 +319,33 @@ pub fn build_snapshot(mut sessions: Vec<AiSession>, warnings: Vec<String>) -> In
     }
 }
 
-fn session_sort_key(session: &AiSession) -> (bool, i64, &str) {
-    (
-        session.status == SessionStatus::Running,
-        session.updated_at_ms.unwrap_or_default(),
-        &session.title,
-    )
+pub fn sort_sessions(sessions: &mut [AiSession], sort: SessionSort) {
+    match sort {
+        SessionSort::UpdatedDesc => sessions.sort_by(|left, right| {
+            right
+                .updated_at_ms
+                .cmp(&left.updated_at_ms)
+                .then_with(|| left.title.cmp(&right.title))
+                .then_with(|| left.id.cmp(&right.id))
+        }),
+    }
+}
+
+pub fn sort_projects(projects: &mut [ProjectSummary], sort: ProjectSort) {
+    match sort {
+        ProjectSort::LatestSessionUpdatedDesc => projects.sort_by(|left, right| {
+            right
+                .latest_updated_at_ms
+                .cmp(&left.latest_updated_at_ms)
+                .then_with(|| right.running_count.cmp(&left.running_count))
+                .then_with(|| {
+                    left.project
+                        .name
+                        .to_lowercase()
+                        .cmp(&right.project.name.to_lowercase())
+                })
+        }),
+    }
 }
 
 fn max_timestamp(left: Option<i64>, right: Option<i64>) -> Option<i64> {
@@ -388,7 +408,7 @@ mod tests {
     }
 
     #[test]
-    fn running_projects_sort_first() {
+    fn projects_sort_by_latest_session_update() {
         let snapshot = build_snapshot(
             vec![
                 session("historical", "/tmp/a", SessionStatus::Historical, 100),
@@ -397,7 +417,20 @@ mod tests {
             Vec::new(),
         );
 
-        assert_eq!(snapshot.projects[0].project.name, "b");
+        assert_eq!(snapshot.projects[0].project.name, "a");
+    }
+
+    #[test]
+    fn sessions_sort_by_latest_update() {
+        let snapshot = build_snapshot(
+            vec![
+                session("old-running", "/tmp/a", SessionStatus::Running, 1),
+                session("new-historical", "/tmp/b", SessionStatus::Historical, 100),
+            ],
+            Vec::new(),
+        );
+
+        assert_eq!(snapshot.sessions[0].id, "new-historical");
     }
 
     #[test]
