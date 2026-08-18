@@ -17,7 +17,7 @@ It does not replace your agents or migrate their history. Press `Alt s`, choose 
 ## Highlights
 
 - **Project-first:** work is grouped by directory, even when one project uses several agents.
-- **Multi-agent:** eight agent session formats are supported out of the box.
+- **Multi-agent:** nine agent session formats are supported out of the box.
 - **One action to continue:** the same `Enter` action focuses a running session or resumes history.
 - **Local by design:** session discovery and search run on your machine; no account or cloud service is required.
 - **Ready-to-install binaries:** Linux and macOS users do not need a Rust toolchain.
@@ -93,6 +93,7 @@ Search covers session title, project, directory and agent name, including Unicod
 | --- | --- | --- |
 | [Codex](https://github.com/openai/codex) | `~/.codex/sessions/` and `~/.codex/session_index.jsonl` | `codex resume <id>` |
 | [OpenCode](https://opencode.ai) | `~/.local/share/opencode/opencode.db` (XDG) | `opencode --session <id>` |
+| [Cursor](https://cursor.com) | `~/.cursor/chats/<workspace>/<chat>/meta.json` | `cursor-agent --resume <id>` |
 | Pi | `~/.pi/agent/sessions/` | `pi --session <path>` |
 | Reasonix | `~/.reasonix/sessions/` | `reasonix --resume <path>` |
 | Codewhale | `~/.codewhale/sessions/` or legacy `~/.deepseek/sessions/` | `codewhale --resume <id>` |
@@ -106,6 +107,7 @@ Environment overrides:
 - Reasonix: `REASONIX_HOME` / `REASONIX_STATE_HOME`
 - Claude Code: `CLAUDE_CONFIG_DIR`
 - Qwen Code: `QWEN_CONFIG_DIR`
+- Cursor: `CURSOR_CONFIG_DIR` (the directory containing `chats/`)
 - OpenCode / Goose: `XDG_DATA_HOME`
 
 Agents that cannot reliably map stored history back to a project directory are intentionally excluded from the default registry. New agents can be proposed with the [agent request template](https://github.com/snail-vs/zellij-ai-session/issues/new/choose).

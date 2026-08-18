@@ -19,6 +19,7 @@ fn main() -> Result<()> {
         match arg.as_str() {
             "--codex-home" => config.codex_home = args.next().map(Into::into),
             "--opencode-db" => config.opencode_db = args.next().map(Into::into),
+            "--cursor-home" => config.cursor_home = args.next().map(Into::into),
             "--help" | "-h" => {
                 println!("zellij-ai-session-index [scan|resume|new] [options]");
                 return Ok(());

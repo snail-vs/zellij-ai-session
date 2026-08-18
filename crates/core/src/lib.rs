@@ -9,6 +9,7 @@ pub const SNAPSHOT_VERSION: u32 = 1;
 pub enum AgentKind {
     Codex,
     OpenCode,
+    Cursor,
     Pi,
     Reasonix,
     Codewhale,
@@ -41,6 +42,12 @@ pub const AGENT_META: &[AgentMeta] = &[
         command: "opencode",
         display_name: "OpenCode",
         resume_args: &["--session"],
+    },
+    AgentMeta {
+        kind: AgentKind::Cursor,
+        command: "cursor-agent",
+        display_name: "Cursor",
+        resume_args: &["--resume"],
     },
     AgentMeta {
         kind: AgentKind::Pi,

@@ -3,6 +3,7 @@ mod agents;
 mod claude;
 mod codewhale;
 mod codex;
+mod cursor;
 mod goose;
 mod opencode;
 mod pi;
@@ -22,6 +23,7 @@ pub use adapters::{AdapterContext, AgentAdapter};
 pub struct IndexerConfig {
     pub codex_home: Option<PathBuf>,
     pub opencode_db: Option<PathBuf>,
+    pub cursor_home: Option<PathBuf>,
 }
 
 pub struct Indexer {

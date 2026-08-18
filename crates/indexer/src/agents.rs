@@ -5,8 +5,8 @@ use zellij_ai_session_core::AgentKind;
 use crate::adapters::AgentAdapter;
 use crate::{
     IndexerConfig, claude::ClaudeAdapter, codewhale::CodewhaleAdapter, codex::CodexAdapter,
-    goose::GooseAdapter, opencode::OpenCodeAdapter, pi::PiAdapter, qwen::QwenAdapter,
-    reasonix::ReasonixAdapter,
+    cursor::CursorAdapter, goose::GooseAdapter, opencode::OpenCodeAdapter, pi::PiAdapter,
+    qwen::QwenAdapter, reasonix::ReasonixAdapter,
 };
 
 /// Builds an adapter from config, returning `None` when the agent's session
@@ -19,6 +19,7 @@ pub type AdapterBuilder = fn(&IndexerConfig) -> Option<Box<dyn AgentAdapter>>;
 pub const ADAPTER_BUILDERS: &[(AgentKind, AdapterBuilder)] = &[
     (AgentKind::Codex, build_codex),
     (AgentKind::OpenCode, build_opencode),
+    (AgentKind::Cursor, build_cursor),
     (AgentKind::Pi, build_pi),
     (AgentKind::Reasonix, build_reasonix),
     (AgentKind::Codewhale, build_codewhale),
@@ -56,6 +57,19 @@ fn build_opencode(config: &IndexerConfig) -> Option<Box<dyn AgentAdapter>> {
         .clone()
         .or_else(|| xdg_or_home("opencode/opencode.db", ".local/share/opencode/opencode.db"))?;
     Some(Box::new(OpenCodeAdapter::new(database)))
+}
+
+fn build_cursor(config: &IndexerConfig) -> Option<Box<dyn AgentAdapter>> {
+    let base = config
+        .cursor_home
+        .clone()
+        .or_else(|| {
+            std::env::var_os("CURSOR_CONFIG_DIR")
+                .filter(|value| !value.is_empty())
+                .map(PathBuf::from)
+        })
+        .or_else(|| home().map(|base| base.join(".cursor")))?;
+    Some(Box::new(CursorAdapter::new(base.join("chats"))))
 }
 
 fn build_pi(_config: &IndexerConfig) -> Option<Box<dyn AgentAdapter>> {

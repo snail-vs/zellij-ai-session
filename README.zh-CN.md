@@ -17,7 +17,7 @@ Codex、OpenCode、Claude Code 等 Agent CLI 分别保存自己的会话历史�
 ## 核心特点
 
 - **项目优先：** 同一项目即使混用多个 Agent，工作记录仍聚合在一起。
-- **多 Agent：** 开箱支持 8 种 Agent 会话格式。
+- **多 Agent：** 开箱支持 9 种 Agent 会话格式。
 - **一个动作继续工作：** `Enter` 既可聚焦运行中的会话，也可恢复历史会话。
 - **本地处理：** 会话发现和搜索均在本机完成，不需要账号或云端服务。
 - **预编译安装：** Linux 和 macOS 用户无需安装 Rust 工具链。
@@ -93,6 +93,7 @@ q       关闭导航器
 | --- | --- | --- |
 | [Codex](https://github.com/openai/codex) | `~/.codex/sessions/` 和 `~/.codex/session_index.jsonl` | `codex resume <id>` |
 | [OpenCode](https://opencode.ai) | `~/.local/share/opencode/opencode.db`（XDG） | `opencode --session <id>` |
+| [Cursor](https://cursor.com) | `~/.cursor/chats/<workspace>/<chat>/meta.json` | `cursor-agent --resume <id>` |
 | Pi | `~/.pi/agent/sessions/` | `pi --session <path>` |
 | Reasonix | `~/.reasonix/sessions/` | `reasonix --resume <path>` |
 | Codewhale | `~/.codewhale/sessions/` 或旧版 `~/.deepseek/sessions/` | `codewhale --resume <id>` |
@@ -106,6 +107,7 @@ q       关闭导航器
 - Reasonix：`REASONIX_HOME` / `REASONIX_STATE_HOME`
 - Claude Code：`CLAUDE_CONFIG_DIR`
 - Qwen Code：`QWEN_CONFIG_DIR`
+- Cursor：`CURSOR_CONFIG_DIR`（该目录下应包含 `chats/`）
 - OpenCode / Goose：`XDG_DATA_HOME`
 
 无法稳定地将历史会话映射回项目目录的 Agent，不会加入默认注册表。可以通过 [Agent 请求模板](https://github.com/snail-vs/zellij-ai-session/issues/new/choose) 提议新的适配。
