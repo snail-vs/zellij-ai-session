@@ -3,7 +3,7 @@ fn main() {}
 
 #[cfg(feature = "wasm")]
 mod plugin {
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet, HashSet};
     use std::path::PathBuf;
 
     use chrono::{Local, TimeZone, Utc};
@@ -16,10 +16,16 @@ mod plugin {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
     enum View {
         #[default]
-        Projects,
-        Sessions,
+        Tree,
         Search,
-        NewSession,
+        ProjectForm,
+        ParentPicker,
+    }
+
+    #[derive(Clone)]
+    enum TreeItem {
+        Project(ProjectSummary),
+        Session(AiSession, usize),
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -34,7 +40,11 @@ mod plugin {
         snapshot: Option<IndexSnapshot>,
         view: View,
         selected: usize,
-        project_id: Option<String>,
+        collapsed: BTreeSet<String>,
+        child_id: Option<String>,
+        form_name: String,
+        form_root: String,
+        form_field: usize,
         search_query: String,
         status: String,
         indexer: String,
@@ -109,19 +119,21 @@ mod plugin {
             let now_ms = Utc::now().timestamp_millis();
             self.ensure_visible(viewport);
             match self.view {
-                View::Projects => self.render_projects(viewport, now_ms),
-                View::Sessions => self.render_sessions(viewport, now_ms),
+                View::Tree => self.render_tree(viewport, now_ms),
                 View::Search => self.render_search(viewport, now_ms),
-                View::NewSession => self.render_new_session(viewport),
+                View::ProjectForm => self.render_project_form(),
+                View::ParentPicker => self.render_parent_picker(viewport),
             }
 
             println!();
             println!("{}", "─".repeat(cols.max(1)));
             match self.view {
-            View::Projects => println!("Enter open   / search   r refresh   q close"),
-            View::Sessions => println!("Enter open   n new   x close runtime   Esc back   / search   r refresh"),
-            View::Search => println!("Type or paste to search   Backspace erase   Esc back"),
-            View::NewSession => println!("Enter create   Esc back"),
+                View::Tree => println!(
+                    "Enter open/toggle   ←/→ collapse/expand   p project   m parent   / search   r refresh   q close"
+                ),
+                View::Search => println!("Type or paste to search   Backspace erase   Esc back"),
+                View::ProjectForm => println!("Tab next field   Enter save   Esc cancel"),
+                View::ParentPicker => println!("Enter set parent   Esc cancel"),
             }
             if !self.status.is_empty() {
                 println!("{}", self.status);
@@ -207,12 +219,27 @@ mod plugin {
             stderr: Vec<u8>,
             context: BTreeMap<String, String>,
         ) -> bool {
-            if matches!(context.get("action").map(String::as_str), Some("resume" | "new")) {
+            let action = context.get("action").map(String::as_str);
+            if matches!(action, Some("resume" | "new")) {
                 if exit_code == Some(0) {
                     match serde_json::from_slice::<CommandSpec>(&stdout) {
                         Ok(command) => self.open_command(command),
                         Err(error) => self.status = format!("Invalid resume command: {error}"),
                     }
+                } else {
+                    self.status = command_error(stderr);
+                }
+                return true;
+            }
+            if matches!(action, Some("create-project" | "set-parent")) {
+                if exit_code == Some(0) {
+                    self.status = if action == Some("create-project") {
+                        "Project saved".into()
+                    } else {
+                        "Parent updated".into()
+                    };
+                    self.view = View::Tree;
+                    self.refresh();
                 } else {
                     self.status = command_error(stderr);
                 }
@@ -258,12 +285,15 @@ mod plugin {
             if matches!(self.view, View::Search) {
                 return self.handle_search_key(key.bare_key);
             }
+            if matches!(self.view, View::ProjectForm) {
+                return self.handle_project_form_key(key.bare_key);
+            }
             if !key.has_no_modifiers() {
                 return false;
             }
             match self.view {
-                View::Search => false,
-                View::Projects => match key.bare_key {
+                View::Search | View::ProjectForm => false,
+                View::Tree => match key.bare_key {
                     BareKey::Down | BareKey::Char('j') => {
                         self.move_selection(1);
                         true
@@ -273,7 +303,23 @@ mod plugin {
                         true
                     }
                     BareKey::Enter => {
-                        self.open_project();
+                        self.activate_tree_item();
+                        true
+                    }
+                    BareKey::Left => {
+                        self.collapse_selected();
+                        true
+                    }
+                    BareKey::Right => {
+                        self.expand_selected();
+                        true
+                    }
+                    BareKey::Char('p') => {
+                        self.start_project_form();
+                        true
+                    }
+                    BareKey::Char('m') => {
+                        self.start_parent_picker();
                         true
                     }
                     BareKey::Char('/') => {
@@ -286,13 +332,13 @@ mod plugin {
                         self.refresh();
                         true
                     }
-                    BareKey::Char('q') => {
+                    BareKey::Char('q') | BareKey::Esc => {
                         close_focus();
                         false
                     }
                     _ => false,
                 },
-                View::Sessions => match key.bare_key {
+                View::ParentPicker => match key.bare_key {
                     BareKey::Down | BareKey::Char('j') => {
                         self.move_selection(1);
                         true
@@ -302,52 +348,11 @@ mod plugin {
                         true
                     }
                     BareKey::Enter => {
-                        self.open_selected_session();
-                        true
-                    }
-                    BareKey::Char('n') => {
-                        self.view = View::NewSession;
-                        self.selected = 0;
-                        self.scroll_offset = 0;
-                        true
-                    }
-                    BareKey::Char('x') => {
-                        self.close_selected_runtime();
+                        self.commit_parent();
                         true
                     }
                     BareKey::Esc => {
-                        self.view = View::Projects;
-                        self.selected = 0;
-                        self.scroll_offset = 0;
-                        true
-                    }
-                    BareKey::Char('/') => {
-                        self.view = View::Search;
-                        self.selected = 0;
-                        self.scroll_offset = 0;
-                        true
-                    }
-                    BareKey::Char('r') => {
-                        self.refresh();
-                        true
-                    }
-                    _ => false,
-                },
-                View::NewSession => match key.bare_key {
-                    BareKey::Down | BareKey::Char('j') => {
-                        self.move_selection(1);
-                        true
-                    }
-                    BareKey::Up | BareKey::Char('k') => {
-                        self.move_selection(-1);
-                        true
-                    }
-                    BareKey::Enter => {
-                        self.create_selected_session();
-                        true
-                    }
-                    BareKey::Esc => {
-                        self.view = View::Sessions;
+                        self.view = View::Tree;
                         self.selected = 0;
                         self.scroll_offset = 0;
                         true
@@ -360,7 +365,7 @@ mod plugin {
         fn handle_search_key(&mut self, key: BareKey) -> bool {
             match key {
                 BareKey::Esc => {
-                    self.view = View::Projects;
+                    self.view = View::Tree;
                     self.selected = 0;
                     self.scroll_offset = 0;
                     true
@@ -394,93 +399,176 @@ mod plugin {
         }
 
         fn handle_pasted_text(&mut self, text: String) -> bool {
+            if matches!(self.view, View::ProjectForm) {
+                self.form_value_mut()
+                    .push_str(text.trim_end_matches(['\n', '\r']));
+                return true;
+            }
             if !matches!(self.view, View::Search) {
                 return false;
             }
-            self.search_query
-                .extend(text.chars().filter(|character| !matches!(character, '\n' | '\r')));
+            self.search_query.extend(
+                text.chars()
+                    .filter(|character| !matches!(character, '\n' | '\r')),
+            );
             self.selected = 0;
             self.scroll_offset = 0;
             true
         }
 
-        fn open_project(&mut self) {
-            let projects = self.projects();
-            let Some(project) = projects.get(self.selected) else {
+        fn form_value_mut(&mut self) -> &mut String {
+            if self.form_field == 0 {
+                &mut self.form_name
+            } else {
+                &mut self.form_root
+            }
+        }
+
+        fn handle_project_form_key(&mut self, key: BareKey) -> bool {
+            match key {
+                BareKey::Esc => self.view = View::Tree,
+                BareKey::Tab => self.form_field = (self.form_field + 1) % 2,
+                BareKey::Backspace => {
+                    self.form_value_mut().pop();
+                }
+                BareKey::Enter => {
+                    if self.form_name.trim().is_empty() || self.form_root.trim().is_empty() {
+                        self.status = "Project name and directory are required".into();
+                    } else {
+                        let mut context = BTreeMap::new();
+                        context.insert("action".into(), "create-project".into());
+                        run_command(
+                            &[
+                                self.indexer.as_str(),
+                                "create-project",
+                                "--name",
+                                self.form_name.trim(),
+                                "--root",
+                                self.form_root.trim(),
+                            ],
+                            context,
+                        );
+                        self.status = "Saving project…".into();
+                    }
+                }
+                BareKey::Char(c) => self.form_value_mut().push(c),
+                _ => return false,
+            }
+            true
+        }
+
+        fn start_project_form(&mut self) {
+            let root = match self.tree_items().get(self.selected) {
+                Some(TreeItem::Project(summary)) => Some(summary.project.root_directory.clone()),
+                Some(TreeItem::Session(session, _)) => Some(session.directory.clone()),
+                None => None,
+            }
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+            self.form_name = root
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "Project".into());
+            self.form_root = root.to_string_lossy().into_owned();
+            self.form_field = 0;
+            self.view = View::ProjectForm;
+        }
+
+        fn activate_tree_item(&mut self) {
+            match self.tree_items().get(self.selected).cloned() {
+                Some(TreeItem::Project(summary)) => self.toggle(&summary.project.id),
+                Some(TreeItem::Session(session, _)) => self.resume_or_open(session),
+                None => {}
+            }
+        }
+
+        fn selected_expandable_id(&self) -> Option<String> {
+            match self.tree_items().get(self.selected) {
+                Some(TreeItem::Project(summary)) => Some(summary.project.id.clone()),
+                Some(TreeItem::Session(session, _))
+                    if self.snapshot.as_ref().is_some_and(|snapshot| {
+                        snapshot
+                            .sessions
+                            .iter()
+                            .any(|child| child.parent_id.as_deref() == Some(&session.id))
+                    }) =>
+                {
+                    Some(session.id.clone())
+                }
+                _ => None,
+            }
+        }
+
+        fn toggle(&mut self, id: &str) {
+            if !self.collapsed.insert(id.to_owned()) {
+                self.collapsed.remove(id);
+            }
+            self.clamp_selection();
+        }
+
+        fn collapse_selected(&mut self) {
+            if let Some(id) = self.selected_expandable_id() {
+                self.collapsed.insert(id);
+            }
+            self.clamp_selection();
+        }
+
+        fn expand_selected(&mut self) {
+            if let Some(id) = self.selected_expandable_id() {
+                self.collapsed.remove(&id);
+            }
+        }
+
+        fn start_parent_picker(&mut self) {
+            let Some(TreeItem::Session(child, _)) = self.tree_items().get(self.selected).cloned()
+            else {
+                self.status = "Select a session first".into();
                 return;
             };
-            self.project_id = Some(project.project.id.clone());
-            self.view = View::Sessions;
+            self.child_id = Some(child.id);
+            self.view = View::ParentPicker;
             self.selected = 0;
             self.scroll_offset = 0;
         }
 
-        fn create_selected_session(&mut self) {
-            let Some(project_id) = self.project_id.clone() else {
-                self.status = "Select a project first".into();
-                return;
-            };
+        fn parent_candidates(&self) -> Vec<Option<AiSession>> {
             let Some(snapshot) = &self.snapshot else {
-                return;
+                return Vec::new();
             };
-            let Some(project) = snapshot
-                .projects
+            let Some(child) = snapshot
+                .sessions
                 .iter()
-                .find(|project| project.project.id == project_id)
+                .find(|s| Some(&s.id) == self.child_id.as_ref())
             else {
-                self.status = "Project not found".into();
+                return Vec::new();
+            };
+            let mut candidates: Vec<_> = snapshot
+                .sessions
+                .iter()
+                .filter(|s| s.project_id == child.project_id && s.id != child.id)
+                .cloned()
+                .collect();
+            sort_sessions(&mut candidates, SessionSort::UpdatedDesc);
+            std::iter::once(None)
+                .chain(candidates.into_iter().map(Some))
+                .collect()
+        }
+
+        fn commit_parent(&mut self) {
+            let Some(child_id) = self.child_id.as_deref() else {
                 return;
             };
-            let Some(meta) = zellij_ai_session_core::AGENT_META.get(self.selected) else {
+            let candidates = self.parent_candidates();
+            let Some(choice) = candidates.get(self.selected) else {
                 return;
             };
-            let agent = meta.command;
+            let mut args = vec![self.indexer.as_str(), "set-parent", "--id", child_id];
+            if let Some(parent) = choice {
+                args.extend(["--parent-id", parent.id.as_str()]);
+            }
             let mut context = BTreeMap::new();
-            context.insert("action".into(), "new".into());
-            let cwd = project.project.root_directory.to_string_lossy().to_string();
-            run_command(
-                &[
-                    self.indexer.as_str(),
-                    "new",
-                    "--agent",
-                    agent,
-                    "--cwd",
-                    cwd.as_str(),
-                ],
-                context,
-            );
-            self.status = format!("Starting {agent}…");
-            self.view = View::Sessions;
-            self.selected = 0;
-            self.scroll_offset = 0;
-        }
-
-        fn close_selected_runtime(&mut self) {
-            let Some(session) = self
-                .sessions_for_current_project()
-                .get(self.selected)
-                .cloned()
-            else {
-                return;
-            };
-            let Some(pane_id) = session.runtime.and_then(|runtime| runtime.pane_id) else {
-                self.status = "This Session has no running runtime".into();
-                return;
-            };
-            close_pane_with_id(PaneId::Terminal(pane_id));
-            self.status = format!("Closed runtime: {}", session.title);
-            self.refresh();
-        }
-
-        fn open_selected_session(&mut self) {
-            let Some(session) = self
-                .sessions_for_current_project()
-                .get(self.selected)
-                .cloned()
-            else {
-                return;
-            };
-            self.resume_or_open(session);
+            context.insert("action".into(), "set-parent".into());
+            run_command(&args, context);
+            self.status = "Saving parent…".into();
         }
 
         fn open_selected_search_session(&mut self) {
@@ -527,21 +615,59 @@ mod plugin {
             projects
         }
 
-        fn sessions_for_current_project(&self) -> Vec<AiSession> {
+        fn tree_items(&self) -> Vec<TreeItem> {
             let Some(snapshot) = &self.snapshot else {
                 return Vec::new();
             };
-            let Some(project_id) = &self.project_id else {
-                return Vec::new();
-            };
-            let mut sessions: Vec<AiSession> = snapshot
-                .sessions
+            let mut items = Vec::new();
+            for summary in self.projects() {
+                let project_id = summary.project.id.clone();
+                items.push(TreeItem::Project(summary));
+                if self.collapsed.contains(&project_id) {
+                    continue;
+                }
+                let mut sessions: Vec<_> = snapshot
+                    .sessions
+                    .iter()
+                    .filter(|s| s.project_id == project_id)
+                    .cloned()
+                    .collect();
+                sort_sessions(&mut sessions, SessionSort::UpdatedDesc);
+                let ids: HashSet<_> = sessions.iter().map(|s| s.id.as_str()).collect();
+                let roots: Vec<_> = sessions
+                    .iter()
+                    .filter(|s| s.parent_id.as_deref().is_none_or(|p| !ids.contains(p)))
+                    .cloned()
+                    .collect();
+                let mut visited = HashSet::new();
+                for root in roots {
+                    self.append_session_tree(&sessions, &root, 1, &mut visited, &mut items);
+                }
+            }
+            items
+        }
+
+        fn append_session_tree(
+            &self,
+            sessions: &[AiSession],
+            session: &AiSession,
+            depth: usize,
+            visited: &mut HashSet<String>,
+            items: &mut Vec<TreeItem>,
+        ) {
+            if !visited.insert(session.id.clone()) {
+                return;
+            }
+            items.push(TreeItem::Session(session.clone(), depth));
+            if self.collapsed.contains(&session.id) {
+                return;
+            }
+            for child in sessions
                 .iter()
-                .filter(|session| &session.project_id == project_id)
-                .cloned()
-                .collect();
-            sort_sessions(&mut sessions, SessionSort::UpdatedDesc);
-            sessions
+                .filter(|s| s.parent_id.as_deref() == Some(&session.id))
+            {
+                self.append_session_tree(sessions, child, depth + 1, visited, items);
+            }
         }
 
         fn search_results(&self) -> Vec<AiSession> {
@@ -593,10 +719,10 @@ mod plugin {
 
         fn list_len(&self) -> usize {
             match self.view {
-                View::Projects => self.projects().len(),
-                View::Sessions => self.sessions_for_current_project().len(),
+                View::Tree => self.tree_items().len(),
                 View::Search => self.search_results().len(),
-                View::NewSession => 2,
+                View::ProjectForm => 0,
+                View::ParentPicker => self.parent_candidates().len(),
             }
         }
 
@@ -622,60 +748,75 @@ mod plugin {
             start..(start + viewport).min(len)
         }
 
-        fn render_projects(&self, viewport: usize, now_ms: i64) {
-            println!("Projects");
-            let projects = self.projects();
-            if projects.is_empty() {
-                println!(
-                    "  {}",
-                    if self.status.is_empty() {
-                        "No sessions found"
-                    } else {
-                        &self.status
-                    }
-                );
+        fn render_tree(&self, viewport: usize, now_ms: i64) {
+            println!("Projects and sessions");
+            let items = self.tree_items();
+            if items.is_empty() {
+                println!("  No projects found. Press p to create one.");
             }
-            for (index, summary) in projects
+            for (index, item) in items
                 .iter()
                 .enumerate()
-                .skip(self.visible_range(projects.len(), viewport).start)
+                .skip(self.visible_range(items.len(), viewport).start)
                 .take(viewport)
             {
                 let marker = if index == self.selected { ">" } else { " " };
-                let running = if summary.running_count > 0 {
-                    format!(" ●{}", summary.running_count)
-                } else {
-                    String::new()
-                };
-                println!(
-                    "{marker} {:<28} {:>3}{}  {}",
-                    summary.project.name,
-                    summary.session_count,
-                    running,
-                    format_updated_at(summary.latest_updated_at_ms, now_ms)
-                );
+                match item {
+                    TreeItem::Project(summary) => {
+                        let arrow = if self.collapsed.contains(&summary.project.id) {
+                            "▸"
+                        } else {
+                            "▾"
+                        };
+                        println!(
+                            "{marker} {arrow} {} ({})  {}",
+                            summary.project.name,
+                            summary.session_count,
+                            format_updated_at(summary.latest_updated_at_ms, now_ms)
+                        );
+                    }
+                    TreeItem::Session(session, depth) => {
+                        let has_children = self.snapshot.as_ref().is_some_and(|snapshot| {
+                            snapshot
+                                .sessions
+                                .iter()
+                                .any(|s| s.parent_id.as_deref() == Some(&session.id))
+                        });
+                        let arrow = if !has_children {
+                            " "
+                        } else if self.collapsed.contains(&session.id) {
+                            "▸"
+                        } else {
+                            "▾"
+                        };
+                        println!(
+                            "{marker} {}{arrow} {} {}  {}{}",
+                            "  ".repeat(*depth),
+                            status_marker(session),
+                            session.agent,
+                            session.title,
+                            if session.native_available {
+                                ""
+                            } else {
+                                " [native unavailable]"
+                            }
+                        );
+                    }
+                }
             }
-        }
-
-        fn render_sessions(&self, viewport: usize, now_ms: i64) {
-            let name = self.project_id.as_deref().unwrap_or("Project");
-            println!("{name}");
-            let sessions = self.sessions_for_current_project();
-            for (index, session) in sessions
-                .iter()
-                .enumerate()
-                .skip(self.visible_range(sessions.len(), viewport).start)
-                .take(viewport)
-            {
-                println!(
-                    "{} {} {:<10} {}{}  {}",
-                    if index == self.selected { ">" } else { " " },
-                    status_marker(session),
-                    session.agent,
-                    session.title,
-                    if session.native_available { "" } else { " [native unavailable]" },
-                    format_updated_at(session.updated_at_ms, now_ms)
-                );
+            if let Some(item) = items.get(self.selected) {
+                match item {
+                    TreeItem::Project(summary) => println!(
+                        "Project directory: {}",
+                        summary.project.root_directory.display()
+                    ),
+                    TreeItem::Session(session, _) => println!(
+                        "{} · {} · {}",
+                        session.agent,
+                        session.directory.display(),
+                        session.id
+                    ),
+                }
             }
         }
 
@@ -697,26 +838,48 @@ mod plugin {
                     status_marker(session),
                     session.agent,
                     session.title,
-                    if session.native_available { "" } else { " [native unavailable]" },
+                    if session.native_available {
+                        ""
+                    } else {
+                        " [native unavailable]"
+                    },
                     format_updated_at(session.updated_at_ms, now_ms),
                     session.directory.display()
                 );
             }
         }
 
-        fn render_new_session(&self, viewport: usize) {
-            let project = self.project_id.as_deref().unwrap_or("Project");
-            println!("New Agent Session in {project}");
-            for (index, meta) in zellij_ai_session_core::AGENT_META
+        fn render_project_form(&self) {
+            println!("New project");
+            println!(
+                "{} Name: {}",
+                if self.form_field == 0 { ">" } else { " " },
+                self.form_name
+            );
+            println!(
+                "{} Directory: {}",
+                if self.form_field == 1 { ">" } else { " " },
+                self.form_root
+            );
+        }
+
+        fn render_parent_picker(&self, viewport: usize) {
+            println!("Set parent for {}", self.child_id.as_deref().unwrap_or(""));
+            let candidates = self.parent_candidates();
+            for (index, candidate) in candidates
                 .iter()
                 .enumerate()
-                .skip(self.visible_range(2, viewport).start)
+                .skip(self.visible_range(candidates.len(), viewport).start)
                 .take(viewport)
             {
+                let label = candidate
+                    .as_ref()
+                    .map(|s| format!("{} · {} ({})", s.agent, s.title, s.id))
+                    .unwrap_or_else(|| "No parent (root session)".into());
                 println!(
                     "{} {}",
                     if index == self.selected { ">" } else { " " },
-                    meta.display_name
+                    label
                 );
             }
         }

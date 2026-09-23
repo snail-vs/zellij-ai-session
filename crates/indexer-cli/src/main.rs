@@ -1,7 +1,7 @@
 use std::env;
 
 use anyhow::Result;
-use zellij_ai_session_core::{AgentKind, CommandSpec};
+use zellij_ai_session_core::{AgentKind, CommandSpec, ProjectOrigin};
 use zellij_ai_session_indexer::{Indexer, IndexerConfig, workbench::WorkbenchStore};
 
 fn main() -> Result<()> {
@@ -15,6 +15,12 @@ fn main() -> Result<()> {
     if command == "new" {
         return new_command(args.collect());
     }
+    if command == "create-project" {
+        return create_project_command(args.collect());
+    }
+    if command == "set-parent" {
+        return set_parent_command(args.collect());
+    }
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -23,7 +29,9 @@ fn main() -> Result<()> {
             "--cursor-home" => config.cursor_home = args.next().map(Into::into),
             "--workbench-db" => workbench_db = args.next().map(Into::into),
             "--help" | "-h" => {
-                println!("zellij-ai-session-index [scan|resume|new] [options]");
+                println!(
+                    "zellij-ai-session-index [scan|resume|new|create-project|set-parent] [options]"
+                );
                 return Ok(());
             }
             unknown => anyhow::bail!("unknown argument: {unknown}"),
@@ -34,6 +42,83 @@ fn main() -> Result<()> {
     let db_path = workbench_db.unwrap_or(WorkbenchStore::default_path()?);
     let snapshot = WorkbenchStore::open(&db_path)?.merge(snapshot)?;
     println!("{}", serde_json::to_string_pretty(&snapshot)?);
+    Ok(())
+}
+
+fn create_project_command(args: Vec<String>) -> Result<()> {
+    let mut name = None;
+    let mut root = None;
+    let mut db = None;
+    let mut args = args.into_iter();
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--name" => name = args.next(),
+            "--root" => root = args.next(),
+            "--workbench-db" => db = args.next(),
+            unknown => anyhow::bail!("unknown create-project argument: {unknown}"),
+        }
+    }
+    let name = name.ok_or_else(|| anyhow::anyhow!("missing --name"))?;
+    let root: std::path::PathBuf = root
+        .ok_or_else(|| anyhow::anyhow!("missing --root"))?
+        .into();
+    if !root.is_dir() {
+        anyhow::bail!("project directory does not exist: {}", root.display());
+    }
+    let path = match db {
+        Some(path) => path.into(),
+        None => WorkbenchStore::default_path()?,
+    };
+    let mut store = WorkbenchStore::open(&path)?;
+    let project = store.create_project(&name, &root, ProjectOrigin::Manual)?;
+    println!("{}", serde_json::to_string(&project)?);
+    Ok(())
+}
+
+fn set_parent_command(args: Vec<String>) -> Result<()> {
+    let mut id = None;
+    let mut parent_id = None;
+    let mut db = None;
+    let mut args = args.into_iter();
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--id" => id = args.next(),
+            "--parent-id" => parent_id = args.next(),
+            "--workbench-db" => db = args.next(),
+            unknown => anyhow::bail!("unknown set-parent argument: {unknown}"),
+        }
+    }
+    let id = id.ok_or_else(|| anyhow::anyhow!("missing --id"))?;
+    let path = match db {
+        Some(path) => path.into(),
+        None => WorkbenchStore::default_path()?,
+    };
+    let mut store = WorkbenchStore::open(&path)?;
+    let snapshot = store.merge(Indexer::from_config(IndexerConfig::default()).scan())?;
+    let child = snapshot
+        .sessions
+        .iter()
+        .find(|session| session.id == id)
+        .ok_or_else(|| anyhow::anyhow!("session {id} was not found"))?;
+    let parent = parent_id
+        .as_deref()
+        .map(|parent_id| {
+            snapshot
+                .sessions
+                .iter()
+                .find(|session| session.id == parent_id)
+                .ok_or_else(|| anyhow::anyhow!("parent session {parent_id} was not found"))
+        })
+        .transpose()?;
+    if let Some(parent) = parent {
+        if parent.project_id != child.project_id {
+            anyhow::bail!("parent and child must belong to the same project");
+        }
+        store.ensure_session(parent, &parent.project_id)?;
+    }
+    store.ensure_session(child, &child.project_id)?;
+    store.set_parent(&id, parent_id.as_deref())?;
+    println!("{{\"ok\":true}}");
     Ok(())
 }
 
