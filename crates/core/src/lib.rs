@@ -123,6 +123,16 @@ pub struct Project {
     pub id: String,
     pub name: String,
     pub root_directory: PathBuf,
+    #[serde(default)]
+    pub origin: ProjectOrigin,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ProjectOrigin {
+    #[default]
+    Auto,
+    Manual,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -161,6 +171,14 @@ pub struct AiSession {
     pub agent_session_id: String,
     pub status: SessionStatus,
     pub runtime: Option<RuntimeRef>,
+    #[serde(default)]
+    pub parent_id: Option<String>,
+    #[serde(default = "default_true")]
+    pub native_available: bool,
+    #[serde(default)]
+    pub selected_cwd: Option<PathBuf>,
+    #[serde(default)]
+    pub work_state: Option<String>,
 }
 
 impl AiSession {
@@ -184,6 +202,10 @@ impl AiSession {
             agent_session_id: agent_session_id.to_string(),
             status: SessionStatus::Historical,
             runtime: None,
+            parent_id: None,
+            native_available: true,
+            selected_cwd: None,
+            work_state: None,
         }
     }
 }
@@ -281,17 +303,38 @@ pub fn project_for_directory(directory: &Path) -> Project {
         id,
         name,
         root_directory,
+        origin: ProjectOrigin::Auto,
     }
+}
+
+fn default_true() -> bool {
+    true
 }
 
 pub fn search_key(value: &str) -> String {
     value.chars().flat_map(char::to_lowercase).collect()
 }
 
-pub fn build_snapshot(mut sessions: Vec<AiSession>, warnings: Vec<String>) -> IndexSnapshot {
+pub fn build_snapshot(sessions: Vec<AiSession>, warnings: Vec<String>) -> IndexSnapshot {
+    build_snapshot_with_projects(sessions, Vec::new(), warnings)
+}
+
+pub fn build_snapshot_with_projects(
+    mut sessions: Vec<AiSession>,
+    saved_projects: Vec<Project>,
+    warnings: Vec<String>,
+) -> IndexSnapshot {
     sort_sessions(&mut sessions, SessionSort::UpdatedDesc);
 
-    let mut projects: Vec<ProjectSummary> = Vec::new();
+    let mut projects: Vec<ProjectSummary> = saved_projects
+        .into_iter()
+        .map(|project| ProjectSummary {
+            project,
+            session_count: 0,
+            running_count: 0,
+            latest_updated_at_ms: None,
+        })
+        .collect();
     for session in &sessions {
         if let Some(summary) = projects
             .iter_mut()
@@ -306,7 +349,8 @@ pub fn build_snapshot(mut sessions: Vec<AiSession>, warnings: Vec<String>) -> In
             continue;
         }
 
-        let project = project_for_directory(&session.directory);
+        let mut project = project_for_directory(&session.directory);
+        project.id = session.project_id.clone();
         projects.push(ProjectSummary {
             project,
             session_count: 1,
@@ -391,6 +435,10 @@ mod tests {
             agent_session_id: id.to_string(),
             status,
             runtime: None,
+            parent_id: None,
+            native_available: true,
+            selected_cwd: None,
+            work_state: None,
         }
     }
 

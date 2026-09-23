@@ -2,10 +2,11 @@ use std::env;
 
 use anyhow::Result;
 use zellij_ai_session_core::{AgentKind, CommandSpec};
-use zellij_ai_session_indexer::{Indexer, IndexerConfig};
+use zellij_ai_session_indexer::{Indexer, IndexerConfig, workbench::WorkbenchStore};
 
 fn main() -> Result<()> {
     let mut config = IndexerConfig::default();
+    let mut workbench_db = None;
     let mut args = env::args().skip(1);
     let command = args.next().unwrap_or_else(|| "scan".into());
     if command == "resume" {
@@ -20,6 +21,7 @@ fn main() -> Result<()> {
             "--codex-home" => config.codex_home = args.next().map(Into::into),
             "--opencode-db" => config.opencode_db = args.next().map(Into::into),
             "--cursor-home" => config.cursor_home = args.next().map(Into::into),
+            "--workbench-db" => workbench_db = args.next().map(Into::into),
             "--help" | "-h" => {
                 println!("zellij-ai-session-index [scan|resume|new] [options]");
                 return Ok(());
@@ -29,6 +31,8 @@ fn main() -> Result<()> {
     }
 
     let snapshot = Indexer::from_config(config).scan();
+    let db_path = workbench_db.unwrap_or(WorkbenchStore::default_path()?);
+    let snapshot = WorkbenchStore::open(&db_path)?.merge(snapshot)?;
     println!("{}", serde_json::to_string_pretty(&snapshot)?);
     Ok(())
 }

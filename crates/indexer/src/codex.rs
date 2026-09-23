@@ -22,7 +22,7 @@ impl CodexAdapter {
         }
     }
 
-    fn parse_file(&self, path: &Path) -> Result<Option<AiSession>> {
+    fn parse_file(&self, path: &Path) -> Result<Option<(AiSession, bool)>> {
         let file =
             File::open(path).with_context(|| format!("open Codex session {}", path.display()))?;
         let reader = BufReader::new(file);
@@ -36,10 +36,11 @@ impl CodexAdapter {
                 Ok(value) => value,
                 Err(_) => continue,
             };
-            last_timestamp = value
+            let timestamp = value
                 .get("timestamp")
                 .and_then(Value::as_str)
                 .and_then(parse_timestamp);
+            last_timestamp = last_timestamp.max(timestamp);
             match value.get("type").and_then(Value::as_str) {
                 Some("session_meta") => meta = Some(value),
                 Some("response_item") => {
@@ -61,12 +62,15 @@ impl CodexAdapter {
             None => return Ok(None),
         };
         let payload = meta.get("payload").unwrap_or(&meta);
+        let legacy_id = payload.get("session_id").and_then(Value::as_str).is_none();
         let session_id = payload
             .get("session_id")
-            .or_else(|| payload.get("id"))
             .and_then(Value::as_str)
-            .or_else(|| path.file_stem().and_then(|name| name.to_str()))
+            .or_else(|| payload.get("id").and_then(Value::as_str))
             .unwrap_or_default();
+        if session_id.is_empty() {
+            anyhow::bail!("session_meta has no native session ID");
+        }
         let directory = payload
             .get("cwd")
             .and_then(Value::as_str)
@@ -84,14 +88,50 @@ impl CodexAdapter {
         let title = title
             .unwrap_or_else(|| format!("Codex session {}", &session_id[..session_id.len().min(8)]));
 
-        Ok(Some(AiSession::new(
-            AgentKind::Codex,
-            &session_id,
-            title,
-            directory,
-            created_at_ms,
-            updated_at_ms,
+        Ok(Some((
+            AiSession::new(
+                AgentKind::Codex,
+                &session_id,
+                title,
+                directory,
+                created_at_ms,
+                updated_at_ms,
+            ),
+            legacy_id,
         )))
+    }
+
+    fn scan_pages(&self) -> Result<(Vec<AiSession>, Vec<String>)> {
+        let mut pages: HashMap<String, AiSession> = HashMap::new();
+        let mut warnings = Vec::new();
+        if !self.sessions_root.exists() {
+            return Ok((Vec::new(), warnings));
+        }
+        let thread_names = read_thread_names(&self.session_index)?;
+        visit_jsonl(&self.sessions_root, &mut |path| {
+            let (session, legacy_id) = match self.parse_file(path) {
+                Ok(Some(parsed)) => parsed,
+                Ok(None) => return Ok(()),
+                Err(error) => {
+                    warnings.push(format!("Codex {}: {error}", path.display()));
+                    return Ok(());
+                }
+            };
+            if legacy_id {
+                warnings.push(format!(
+                    "Codex {}: session_id absent; using legacy id",
+                    path.display()
+                ));
+            }
+            merge_page(&mut pages, session);
+            Ok(())
+        })?;
+        for session in pages.values_mut() {
+            if let Some(thread_name) = thread_names.get(&session.agent_session_id) {
+                session.title = thread_name.clone();
+            }
+        }
+        Ok((pages.into_values().collect(), warnings))
     }
 }
 
@@ -104,27 +144,47 @@ impl AgentAdapter for CodexAdapter {
     }
 
     fn list_sessions(&self) -> Result<Vec<AiSession>> {
-        let mut result = Vec::new();
-        if !self.sessions_root.exists() {
-            return Ok(result);
-        }
-        let thread_names = read_thread_names(&self.session_index)?;
-        visit_jsonl(&self.sessions_root, &mut |path| {
-            if let Some(mut session) = self.parse_file(path)? {
-                if let Some(thread_name) = thread_names.get(&session.agent_session_id) {
-                    session.title = thread_name.clone();
-                }
-                result.push(session);
-            }
-            Ok(())
-        })?;
-        Ok(result)
+        self.scan_pages().map(|(sessions, _)| sessions)
+    }
+
+    fn list_sessions_with_warnings(&self) -> Result<(Vec<AiSession>, Vec<String>)> {
+        self.scan_pages()
     }
 
     fn resume_command(&self, session: &AiSession) -> Result<CommandSpec> {
         Ok(CommandSpec::new("codex", session.directory.clone())
             .with_args(["resume", session.agent_session_id.as_str()]))
     }
+}
+
+fn merge_page(pages: &mut HashMap<String, AiSession>, session: AiSession) {
+    match pages.entry(session.agent_session_id.clone()) {
+        std::collections::hash_map::Entry::Vacant(entry) => {
+            entry.insert(session);
+        }
+        std::collections::hash_map::Entry::Occupied(mut entry) => {
+            let current = entry.get_mut();
+            let earlier = matches!((session.created_at_ms, current.created_at_ms),
+                (Some(left), Some(right)) if left < right);
+            if earlier {
+                current.directory = session.directory.clone();
+                if !is_fallback_title(&session) {
+                    current.title = session.title.clone();
+                }
+            } else if is_fallback_title(current) && !is_fallback_title(&session) {
+                current.title = session.title.clone();
+            }
+            current.created_at_ms = match (current.created_at_ms, session.created_at_ms) {
+                (Some(left), Some(right)) => Some(left.min(right)),
+                (left, right) => left.or(right),
+            };
+            current.updated_at_ms = current.updated_at_ms.max(session.updated_at_ms);
+        }
+    }
+}
+
+fn is_fallback_title(session: &AiSession) -> bool {
+    session.title.starts_with("Codex session ")
 }
 
 fn visit_jsonl(root: &Path, callback: &mut impl FnMut(&Path) -> Result<()>) -> Result<()> {
@@ -148,30 +208,9 @@ fn value_timestamp(value: &Value) -> Option<i64> {
 }
 
 fn parse_timestamp(value: &str) -> Option<i64> {
-    let (date, time) = value.split_once('T')?;
-    let (year, rest) = date.split_once('-')?;
-    let (month, day) = rest.split_once('-')?;
-    let (hour, rest) = time.split_once(':')?;
-    let (minute, rest) = rest.split_once(':')?;
-    let second = rest
-        .split(|ch| ch == '.' || ch == 'Z' || ch == '+' || ch == '-')
-        .next()?;
-    let days = days_from_civil(year.parse().ok()?, month.parse().ok()?, day.parse().ok()?);
-    Some(
-        (((days * 24 + hour.parse::<i64>().ok()?) * 60 + minute.parse::<i64>().ok()?) * 60
-            + second.parse::<i64>().ok()?)
-            * 1000,
-    )
-}
-
-fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
-    let year = year - i64::from(month <= 2);
-    let era = (if year >= 0 { year } else { year - 399 }) / 400;
-    let year_of_era = year - era * 400;
-    let month_adjusted = month + if month > 2 { -3 } else { 9 };
-    let day_of_year = (153 * month_adjusted + 2) / 5 + day - 1;
-    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
-    era * 146097 + day_of_era - 719468
+    chrono::DateTime::parse_from_rfc3339(value)
+        .ok()
+        .map(|timestamp| timestamp.timestamp_millis())
 }
 
 fn read_thread_names(path: &Path) -> Result<HashMap<String, String>> {
@@ -224,6 +263,7 @@ fn first_text(value: &Value) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn latest_codex_thread_name_wins() {
@@ -251,5 +291,36 @@ mod tests {
             {"type": "output_text", "text": "已完成"}
         ]);
         assert_eq!(first_text(&value), Some("修复中文搜索"));
+    }
+
+    #[test]
+    fn paginated_history_has_one_native_session_without_main_page() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("codex-pages-{suffix}"));
+        std::fs::create_dir_all(&root).unwrap();
+        let early = r#"{"timestamp":"2026-01-01T00:00:00Z","type":"session_meta","payload":{"id":"page-a","session_id":"thread-1","cwd":"/tmp/a","timestamp":"2026-01-01T00:00:00Z"}}
+{"timestamp":"2026-01-01T00:01:00Z","type":"response_item","payload":{"role":"user","content":[{"type":"input_text","text":"Initial task"}]}}"#;
+        let late = r#"{"timestamp":"2026-01-02T00:00:00Z","type":"session_meta","payload":{"id":"page-b","session_id":"thread-1","cwd":"/tmp/a","timestamp":"2026-01-02T00:00:00Z"}}
+{"timestamp":"2026-01-02T00:01:00Z","type":"response_item","payload":{"role":"user","content":[{"type":"input_text","text":"Follow-up"}]}}"#;
+        std::fs::write(root.join("z.jsonl"), early).unwrap();
+        std::fs::write(root.join("a.jsonl"), late).unwrap();
+        std::fs::write(root.join("duplicate.jsonl"), late).unwrap();
+        std::fs::write(
+            root.join("bad.jsonl"),
+            r#"{"type":"session_meta","payload":{"cwd":"/tmp/a"}}"#,
+        )
+        .unwrap();
+        let adapter = CodexAdapter::new(root.clone(), root.join("missing-index"));
+        let (sessions, warnings) = adapter.list_sessions_with_warnings().unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].id, "codex:thread-1");
+        assert_eq!(sessions[0].title, "Initial task");
+        assert!(sessions[0].updated_at_ms > sessions[0].created_at_ms);
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("no native session ID"));
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

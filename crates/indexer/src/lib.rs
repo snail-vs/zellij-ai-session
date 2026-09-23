@@ -9,6 +9,7 @@ mod opencode;
 mod pi;
 mod qwen;
 mod reasonix;
+pub mod workbench;
 
 use std::path::PathBuf;
 
@@ -46,8 +47,11 @@ impl Indexer {
         let mut warnings = Vec::new();
 
         for adapter in &self.adapters {
-            match adapter.list_sessions() {
-                Ok(mut found) => sessions.append(&mut found),
+            match adapter.list_sessions_with_warnings() {
+                Ok((mut found, mut adapter_warnings)) => {
+                    sessions.append(&mut found);
+                    warnings.append(&mut adapter_warnings);
+                }
                 Err(error) => warnings.push(format!("{}: {error}", adapter.name())),
             }
         }
@@ -115,6 +119,10 @@ mod tests {
             agent_session_id: "one".into(),
             status: SessionStatus::Historical,
             runtime: None,
+            parent_id: None,
+            native_available: true,
+            selected_cwd: None,
+            work_state: None,
         }];
         apply_runtime(
             &mut sessions,

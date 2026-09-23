@@ -167,6 +167,11 @@ mod plugin {
                 }
             }
             for session in &mut snapshot.sessions {
+                if !session.native_available {
+                    session.runtime = None;
+                    session.status = SessionStatus::Historical;
+                    continue;
+                }
                 let candidates: Vec<&RuntimeRef> = runtimes
                     .iter()
                     .filter(|runtime| {
@@ -486,6 +491,10 @@ mod plugin {
         }
 
         fn resume_or_open(&mut self, session: AiSession) {
+            if !session.native_available {
+                self.status = format!("Native session {} is unavailable", session.id);
+                return;
+            }
             if let Some(runtime) = session.runtime.and_then(|runtime| runtime.pane_id) {
                 show_pane_with_id(PaneId::Terminal(runtime), true, true);
                 return;
@@ -659,11 +668,12 @@ mod plugin {
                 .take(viewport)
             {
                 println!(
-                    "{} {} {:<10} {}  {}",
+                    "{} {} {:<10} {}{}  {}",
                     if index == self.selected { ">" } else { " " },
                     status_marker(session),
                     session.agent,
                     session.title,
+                    if session.native_available { "" } else { " [native unavailable]" },
                     format_updated_at(session.updated_at_ms, now_ms)
                 );
             }
@@ -682,11 +692,12 @@ mod plugin {
                 .take(viewport)
             {
                 println!(
-                    "{} {} {:<10} {}  {} [{}]",
+                    "{} {} {:<10} {}{}  {} [{}]",
                     if index == self.selected { ">" } else { " " },
                     status_marker(session),
                     session.agent,
                     session.title,
+                    if session.native_available { "" } else { " [native unavailable]" },
                     format_updated_at(session.updated_at_ms, now_ms),
                     session.directory.display()
                 );
@@ -712,6 +723,9 @@ mod plugin {
     }
 
     fn status_marker(session: &AiSession) -> &'static str {
+        if !session.native_available {
+            return "×";
+        }
         match session.status {
             SessionStatus::Running => "●",
             SessionStatus::Historical => "○",

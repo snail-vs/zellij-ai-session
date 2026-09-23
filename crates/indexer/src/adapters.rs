@@ -8,6 +8,9 @@ pub trait AgentAdapter: Send + Sync {
     fn name(&self) -> &'static str;
     fn agent(&self) -> AgentKind;
     fn list_sessions(&self) -> Result<Vec<AiSession>>;
+    fn list_sessions_with_warnings(&self) -> Result<(Vec<AiSession>, Vec<String>)> {
+        self.list_sessions().map(|sessions| (sessions, Vec::new()))
+    }
     fn resume_command(&self, session: &AiSession) -> Result<CommandSpec>;
 }
 
