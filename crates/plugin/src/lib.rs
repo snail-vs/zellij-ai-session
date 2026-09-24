@@ -966,13 +966,15 @@ mod plugin {
             } else {
                 (viewport / 2).max(2)
             };
+            // Keep the session tree as the primary work area while leaving
+            // enough room in the details inspector for readable previews.
             let left_width = if split {
-                (cols / 2).clamp(28, 48)
+                cols.saturating_sub((cols / 4).clamp(40, 60) + 3)
             } else {
                 cols
             };
             let right_width = cols.saturating_sub(left_width + 3);
-            let mut left = vec!["Projects and sessions".to_string()];
+            let mut left = vec!["Tasks".to_string()];
             if items.is_empty() {
                 left.push("  No projects found. Press p to create one.".into());
             }
@@ -1038,12 +1040,12 @@ mod plugin {
                     let pad = left_width
                         .saturating_sub(displayed.chars().map(|c| c.width().unwrap_or(0)).sum());
                     println!(
-                        "{}{} │ {}",
+                        "{}{} │  {} ",
                         displayed,
                         " ".repeat(pad),
                         clip(
                             detail.get(row).map(String::as_str).unwrap_or(""),
-                            right_width
+                            right_width.saturating_sub(2)
                         )
                     );
                 }
@@ -1067,7 +1069,7 @@ mod plugin {
             width: usize,
             height: usize,
         ) -> Vec<String> {
-            let mut lines = Vec::new();
+            let mut lines = vec!["Task details".to_string()];
             match item {
                 Some(TreeItem::Project(summary)) => {
                     lines.push(summary.project.name.clone());
