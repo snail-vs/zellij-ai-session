@@ -195,9 +195,7 @@ fn resume_command(args: Vec<String>) -> Result<()> {
             "--session-id" => session_id = args.next(),
             "--cwd" => cwd = args.next(),
             "--help" | "-h" => {
-                println!(
-                    "zellij-ai-session-index resume --agent codex|opencode --session-id ID --cwd PATH"
-                );
+                println!("zellij-ai-session-index resume --agent NAME --session-id ID --cwd PATH");
                 return Ok(());
             }
             unknown => anyhow::bail!("unknown resume argument: {unknown}"),

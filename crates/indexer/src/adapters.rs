@@ -1,8 +1,10 @@
+use std::fs::File;
+use std::io::{BufRead, BufReader};
 use std::path::Path;
 
 use anyhow::Result;
 use serde_json::Value;
-use zellij_ai_session_core::{AgentKind, AiSession, CommandSpec, SessionPreview};
+use zellij_ai_session_core::{AgentKind, AiSession, CommandSpec, PreviewMessage, SessionPreview};
 
 pub trait AgentAdapter: Send + Sync {
     fn name(&self) -> &'static str;
@@ -19,6 +21,96 @@ pub trait AgentAdapter: Send + Sync {
             note: Some(format!("{} preview is not supported", self.name())),
         })
     }
+}
+
+pub(crate) fn preview_result(
+    session_id: &str,
+    found: bool,
+    messages: Vec<PreviewMessage>,
+) -> SessionPreview {
+    let messages = messages.into_iter().rev().take(8).collect::<Vec<_>>();
+    let messages = messages.into_iter().rev().collect::<Vec<_>>();
+    let note = if !found {
+        Some("Native session was not found".into())
+    } else if messages.is_empty() {
+        Some("No readable user or Agent messages have been saved yet".into())
+    } else {
+        None
+    };
+    SessionPreview {
+        session_id: session_id.into(),
+        messages,
+        note,
+    }
+}
+
+pub(crate) fn preview_message(role: &str, content: &Value) -> Option<PreviewMessage> {
+    if !matches!(role, "user" | "assistant") {
+        return None;
+    }
+    let text = first_text(content)?.trim();
+    if text.is_empty() {
+        return None;
+    }
+    Some(PreviewMessage {
+        role: role.into(),
+        text: text.into(),
+    })
+}
+
+pub(crate) fn preview_project_jsonl(root: &Path, session_id: &str) -> Result<SessionPreview> {
+    if !root.is_dir() {
+        return Ok(preview_result(session_id, false, Vec::new()));
+    }
+    let mut dirs = vec![root.to_path_buf()];
+    while let Some(dir) = dirs.pop() {
+        for entry in std::fs::read_dir(dir)? {
+            let path = entry?.path();
+            if path.is_dir() {
+                dirs.push(path);
+            } else if path.extension().and_then(|ext| ext.to_str()) == Some("jsonl") {
+                let file_id = path.file_stem().and_then(|stem| stem.to_str());
+                let native_id = BufReader::new(File::open(&path)?)
+                    .lines()
+                    .take(50)
+                    .filter_map(|line| line.ok())
+                    .filter_map(|line| serde_json::from_str::<Value>(&line).ok())
+                    .find_map(|value| {
+                        value
+                            .get("sessionId")
+                            .and_then(Value::as_str)
+                            .map(str::to_owned)
+                    });
+                if native_id.as_deref().or(file_id) != Some(session_id) {
+                    continue;
+                }
+                let mut messages = Vec::new();
+                for line in BufReader::new(File::open(&path)?).lines() {
+                    let Ok(value) = serde_json::from_str::<Value>(&line?) else {
+                        continue;
+                    };
+                    if value.get("isMeta").and_then(Value::as_bool) == Some(true) {
+                        continue;
+                    }
+                    let role = value
+                        .get("message")
+                        .and_then(|m| m.get("role"))
+                        .and_then(Value::as_str)
+                        .or_else(|| value.get("type").and_then(Value::as_str));
+                    let content = value
+                        .get("message")
+                        .and_then(|m| m.get("content").or_else(|| m.get("parts")));
+                    if let (Some(role), Some(content)) = (role, content) {
+                        if let Some(message) = preview_message(role, content) {
+                            messages.push(message);
+                        }
+                    }
+                }
+                return Ok(preview_result(session_id, true, messages));
+            }
+        }
+    }
+    Ok(preview_result(session_id, false, Vec::new()))
 }
 
 /// Parse an RFC 3339 / ISO 8601 timestamp (e.g. `2024-12-03T14:00:00.000Z`)

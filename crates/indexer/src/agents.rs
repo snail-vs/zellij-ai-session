@@ -78,20 +78,26 @@ fn build_pi(_config: &IndexerConfig) -> Option<Box<dyn AgentAdapter>> {
 }
 
 fn build_reasonix(_config: &IndexerConfig) -> Option<Box<dyn AgentAdapter>> {
-    let sessions_dir = std::env::var_os("REASONIX_STATE_HOME")
-        .map(|base| PathBuf::from(base).join("sessions"))
-        .or_else(|| {
-            std::env::var_os("REASONIX_HOME").map(|base| PathBuf::from(base).join("sessions"))
-        })
-        .or_else(|| home().map(|base| base.join(".reasonix/sessions")))?;
-    Some(Box::new(ReasonixAdapter::new(sessions_dir)))
+    let base = std::env::var_os("REASONIX_STATE_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("REASONIX_HOME").map(PathBuf::from))
+        .or_else(|| home().map(|base| base.join(".reasonix")))?;
+    Some(Box::new(ReasonixAdapter::new(base)))
 }
 
 fn build_codewhale(_config: &IndexerConfig) -> Option<Box<dyn AgentAdapter>> {
     let base = std::env::var_os("CODEWHALE_HOME")
         .map(PathBuf::from)
-        .or_else(|| home().map(|base| base.join(".codewhale")))
-        .or_else(|| home().map(|base| base.join(".deepseek")))?;
+        .or_else(|| {
+            home().map(|base| {
+                let current = base.join(".codewhale");
+                if current.join("sessions").is_dir() {
+                    current
+                } else {
+                    base.join(".deepseek")
+                }
+            })
+        })?;
     Some(Box::new(CodewhaleAdapter::new(base.join("sessions"))))
 }
 

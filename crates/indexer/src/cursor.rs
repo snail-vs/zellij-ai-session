@@ -2,9 +2,9 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
-use zellij_ai_session_core::{AgentKind, AiSession, CommandSpec};
+use zellij_ai_session_core::{AgentKind, AiSession, CommandSpec, PreviewMessage, SessionPreview};
 
-use crate::adapters::{AgentAdapter, clean_title};
+use crate::adapters::{AgentAdapter, clean_title, preview_result};
 
 /// Cursor stores one metadata file per chat at
 /// `<config>/chats/<workspace>/<chat-id>/meta.json`.
@@ -99,6 +99,51 @@ impl AgentAdapter for CursorAdapter {
     fn resume_command(&self, session: &AiSession) -> Result<CommandSpec> {
         Ok(CommandSpec::new("cursor-agent", session.directory.clone())
             .with_args(["--resume", session.agent_session_id.as_str()]))
+    }
+
+    fn preview(&self, session_id: &str) -> Result<SessionPreview> {
+        if !self.chats_root.is_dir() {
+            return Ok(preview_result(session_id, false, Vec::new()));
+        }
+        let mut path = None;
+        visit_meta_files(&self.chats_root, &mut |meta| {
+            if meta
+                .parent()
+                .and_then(Path::file_name)
+                .and_then(|name| name.to_str())
+                == Some(session_id)
+            {
+                path = Some(meta.to_path_buf());
+            }
+            Ok(())
+        })?;
+        let Some(meta) = path else {
+            return Ok(preview_result(session_id, false, Vec::new()));
+        };
+        let prompt_path = meta.parent().unwrap().join("prompt_history.json");
+        if !prompt_path.is_file() {
+            return Ok(preview_result(session_id, true, Vec::new()));
+        }
+        let value: serde_json::Value = serde_json::from_reader(std::fs::File::open(prompt_path)?)?;
+        let mut messages = Vec::new();
+        if let Some(entries) = value.as_array() {
+            for entry in entries {
+                let text = entry
+                    .as_str()
+                    .or_else(|| entry.get("text").and_then(|v| v.as_str()));
+                if let Some(text) = text.filter(|text| !text.trim().is_empty()) {
+                    messages.push(PreviewMessage {
+                        role: "user".into(),
+                        text: text.into(),
+                    });
+                }
+            }
+        }
+        let mut preview = preview_result(session_id, true, messages);
+        if !preview.messages.is_empty() {
+            preview.note = Some("Cursor prompt history contains user prompts only".into());
+        }
+        Ok(preview)
     }
 }
 

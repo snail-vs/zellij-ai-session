@@ -87,6 +87,8 @@ q       关闭导航器
 
 搜索范围包括会话标题、项目、目录和 Agent 名称，支持中文等 Unicode 子串。
 
+详情面板会读取各工具已保存的近期消息。Cursor 的本地 `prompt_history.json` 只提供用户提示，因此预览中不包含 Agent 回复。
+
 ## 支持的 Agent
 
 | Agent | 本地会话存储 | 恢复命令 |
@@ -95,7 +97,7 @@ q       关闭导航器
 | [OpenCode](https://opencode.ai) | `~/.local/share/opencode/opencode.db`（XDG） | `opencode --session <id>` |
 | [Cursor](https://cursor.com) | `~/.cursor/chats/<workspace>/<chat>/meta.json` | `cursor-agent --resume <id>` |
 | Pi | `~/.pi/agent/sessions/` | `pi --session <path>` |
-| Reasonix | `~/.reasonix/sessions/` | `reasonix --resume <path>` |
+| Reasonix | `~/.reasonix/projects/*/sessions/` 或旧版 `~/.reasonix/sessions/` | `reasonix --resume <path>` |
 | Codewhale | `~/.codewhale/sessions/` 或旧版 `~/.deepseek/sessions/` | `codewhale --resume <id>` |
 | [Claude Code](https://claude.com/claude-code) | `~/.claude/projects/` | `claude --resume <id>` |
 | [Qwen Code](https://github.com/QwenLM/qwen-code) | `~/.qwen/projects/` | `qwen --resume <id>` |

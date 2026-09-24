@@ -87,6 +87,8 @@ q       close the navigator
 
 Search covers session title, project, directory and agent name, including Unicode substrings such as Chinese text.
 
+The details pane reads recent saved messages for supported agents. Cursor's local `prompt_history.json` provides user prompts only, so its preview does not include agent replies.
+
 ## Supported Agents
 
 | Agent | Local session store | Resume command |
@@ -95,7 +97,7 @@ Search covers session title, project, directory and agent name, including Unicod
 | [OpenCode](https://opencode.ai) | `~/.local/share/opencode/opencode.db` (XDG) | `opencode --session <id>` |
 | [Cursor](https://cursor.com) | `~/.cursor/chats/<workspace>/<chat>/meta.json` | `cursor-agent --resume <id>` |
 | Pi | `~/.pi/agent/sessions/` | `pi --session <path>` |
-| Reasonix | `~/.reasonix/sessions/` | `reasonix --resume <path>` |
+| Reasonix | `~/.reasonix/projects/*/sessions/` or legacy `~/.reasonix/sessions/` | `reasonix --resume <path>` |
 | Codewhale | `~/.codewhale/sessions/` or legacy `~/.deepseek/sessions/` | `codewhale --resume <id>` |
 | [Claude Code](https://claude.com/claude-code) | `~/.claude/projects/` | `claude --resume <id>` |
 | [Qwen Code](https://github.com/QwenLM/qwen-code) | `~/.qwen/projects/` | `qwen --resume <id>` |

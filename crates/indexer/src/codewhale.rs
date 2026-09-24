@@ -5,9 +5,9 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use serde_json::Value;
 
-use zellij_ai_session_core::{AgentKind, AiSession, CommandSpec};
+use zellij_ai_session_core::{AgentKind, AiSession, CommandSpec, SessionPreview};
 
-use crate::adapters::AgentAdapter;
+use crate::adapters::{AgentAdapter, preview_message, preview_result};
 
 pub struct CodewhaleAdapter {
     sessions_dir: PathBuf,
@@ -121,6 +121,42 @@ impl AgentAdapter for CodewhaleAdapter {
     fn resume_command(&self, session: &AiSession) -> Result<CommandSpec> {
         Ok(CommandSpec::new("codewhale", session.directory.clone())
             .with_args(["--resume", session.agent_session_id.as_str()]))
+    }
+
+    fn preview(&self, session_id: &str) -> Result<SessionPreview> {
+        if !self.sessions_dir.is_dir() {
+            return Ok(preview_result(session_id, false, Vec::new()));
+        }
+        for entry in std::fs::read_dir(&self.sessions_dir)? {
+            let path = entry?.path();
+            if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+                continue;
+            }
+            let value: Value = serde_json::from_reader(BufReader::new(File::open(&path)?))?;
+            let id = value
+                .get("metadata")
+                .and_then(|m| m.get("id"))
+                .and_then(Value::as_str)
+                .or_else(|| path.file_stem().and_then(|s| s.to_str()));
+            if id != Some(session_id) {
+                continue;
+            }
+            let mut messages = Vec::new();
+            if let Some(entries) = value.get("messages").and_then(Value::as_array) {
+                for entry in entries {
+                    if let (Some(role), Some(content)) = (
+                        entry.get("role").and_then(Value::as_str),
+                        entry.get("content"),
+                    ) {
+                        if let Some(message) = preview_message(role, content) {
+                            messages.push(message);
+                        }
+                    }
+                }
+            }
+            return Ok(preview_result(session_id, true, messages));
+        }
+        Ok(preview_result(session_id, false, Vec::new()))
     }
 }
 

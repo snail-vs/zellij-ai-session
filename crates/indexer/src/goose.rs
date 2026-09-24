@@ -3,9 +3,9 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;
-use zellij_ai_session_core::{AgentKind, AiSession, CommandSpec};
+use zellij_ai_session_core::{AgentKind, AiSession, CommandSpec, SessionPreview};
 
-use crate::adapters::{AgentAdapter, first_text, iso_to_ms};
+use crate::adapters::{AgentAdapter, first_text, iso_to_ms, preview_message, preview_result};
 
 pub struct GooseAdapter {
     database: PathBuf,
@@ -91,6 +91,38 @@ impl AgentAdapter for GooseAdapter {
                 session.agent_session_id.as_str(),
             ]),
         )
+    }
+
+    fn preview(&self, session_id: &str) -> Result<SessionPreview> {
+        if !self.database.exists() {
+            return Ok(preview_result(session_id, false, Vec::new()));
+        }
+        let connection =
+            Connection::open_with_flags(&self.database, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        let found: bool = connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sessions WHERE id = ?1)",
+            [session_id],
+            |row| row.get(0),
+        )?;
+        if !found {
+            return Ok(preview_result(session_id, false, Vec::new()));
+        }
+        let mut statement = connection.prepare(
+            "SELECT role, content FROM messages WHERE session_id = ?1 ORDER BY timestamp DESC LIMIT 100"
+        )?;
+        let rows = statement.query_map([session_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        let mut messages = Vec::new();
+        for row in rows {
+            let (role, content) = row?;
+            let value = serde_json::from_str::<Value>(&content).unwrap_or(Value::String(content));
+            if let Some(message) = preview_message(&role, &value) {
+                messages.push(message);
+            }
+        }
+        messages.reverse();
+        Ok(preview_result(session_id, true, messages))
     }
 }
 

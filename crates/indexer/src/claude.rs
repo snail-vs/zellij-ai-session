@@ -5,9 +5,9 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use serde_json::Value;
 
-use zellij_ai_session_core::{AgentKind, AiSession, CommandSpec};
+use zellij_ai_session_core::{AgentKind, AiSession, CommandSpec, SessionPreview};
 
-use crate::adapters::{AgentAdapter, clean_title, structured_title};
+use crate::adapters::{AgentAdapter, clean_title, preview_project_jsonl, structured_title};
 
 pub struct ClaudeAdapter {
     projects_dir: PathBuf,
@@ -165,6 +165,10 @@ impl AgentAdapter for ClaudeAdapter {
     fn resume_command(&self, session: &AiSession) -> Result<CommandSpec> {
         Ok(CommandSpec::new("claude", session.directory.clone())
             .with_args(["--resume", session.agent_session_id.as_str()]))
+    }
+
+    fn preview(&self, session_id: &str) -> Result<SessionPreview> {
+        preview_project_jsonl(&self.projects_dir, session_id)
     }
 }
 

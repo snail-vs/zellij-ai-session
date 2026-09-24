@@ -5,9 +5,9 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
-use zellij_ai_session_core::{AgentKind, AiSession, CommandSpec};
+use zellij_ai_session_core::{AgentKind, AiSession, CommandSpec, SessionPreview};
 
-use crate::adapters::AgentAdapter;
+use crate::adapters::{AgentAdapter, preview_message, preview_result};
 
 #[derive(Debug, Deserialize, Default)]
 struct ReasonixMeta {
@@ -159,20 +159,24 @@ impl AgentAdapter for ReasonixAdapter {
         if !self.sessions_dir.exists() {
             return Ok(result);
         }
-        for entry in std::fs::read_dir(&self.sessions_dir)
-            .with_context(|| format!("read {}", self.sessions_dir.display()))?
-        {
-            let entry = entry?;
-            let path = entry.path();
-            if path.is_dir() {
-                continue;
-            }
-            if path.extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
-                continue;
-            }
-            if let Some(session) = self.parse_file(&path)? {
+        let mut scan = |path: &Path| {
+            if let Some(session) = self.parse_file(path)? {
                 result.push(session);
             }
+            Ok(())
+        };
+        for root in [
+            self.sessions_dir.join("sessions"),
+            self.sessions_dir.join("projects"),
+        ] {
+            if root.is_dir() {
+                self.visit_sessions(&root, &mut scan)?;
+            }
+        }
+        if !self.sessions_dir.join("sessions").is_dir()
+            && !self.sessions_dir.join("projects").is_dir()
+        {
+            self.visit_sessions(&self.sessions_dir, &mut scan)?;
         }
         Ok(result)
     }
@@ -180,6 +184,59 @@ impl AgentAdapter for ReasonixAdapter {
     fn resume_command(&self, session: &AiSession) -> Result<CommandSpec> {
         Ok(CommandSpec::new("reasonix", session.directory.clone())
             .with_args(["--resume", session.agent_session_id.as_str()]))
+    }
+
+    fn preview(&self, session_id: &str) -> Result<SessionPreview> {
+        let path = Path::new(session_id);
+        if path.extension().and_then(|ext| ext.to_str()) != Some("jsonl")
+            || !path.canonicalize().ok().is_some_and(|path| {
+                self.sessions_dir
+                    .canonicalize()
+                    .ok()
+                    .is_some_and(|root| path.starts_with(root))
+            })
+        {
+            return Ok(preview_result(session_id, false, Vec::new()));
+        }
+        let mut messages = Vec::new();
+        for line in BufReader::new(File::open(path)?).lines() {
+            let Ok(value) = serde_json::from_str::<serde_json::Value>(&line?) else {
+                continue;
+            };
+            let Some(role) = value.get("role").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            if let Some(content) = value.get("content") {
+                if let Some(message) = preview_message(role, content) {
+                    messages.push(message);
+                }
+            }
+        }
+        Ok(preview_result(session_id, true, messages))
+    }
+}
+
+impl ReasonixAdapter {
+    fn visit_sessions(
+        &self,
+        root: &Path,
+        callback: &mut impl FnMut(&Path) -> Result<()>,
+    ) -> Result<()> {
+        for entry in std::fs::read_dir(root).with_context(|| format!("read {}", root.display()))? {
+            let path = entry?.path();
+            if path.is_dir() {
+                if path.file_name().and_then(|name| name.to_str()) == Some("sessions") {
+                    self.visit_sessions(&path, callback)?;
+                } else if root == self.sessions_dir || root == self.sessions_dir.join("projects") {
+                    self.visit_sessions(&path, callback)?;
+                }
+            } else if path.extension().and_then(|ext| ext.to_str()) == Some("jsonl")
+                && !path.to_string_lossy().ends_with(".events.jsonl")
+            {
+                callback(&path)?;
+            }
+        }
+        Ok(())
     }
 }
 

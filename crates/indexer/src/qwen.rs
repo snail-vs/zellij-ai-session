@@ -5,9 +5,11 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use serde_json::Value;
 
-use zellij_ai_session_core::{AgentKind, AiSession, CommandSpec};
+use zellij_ai_session_core::{AgentKind, AiSession, CommandSpec, SessionPreview};
 
-use crate::adapters::{AgentAdapter, clean_title, first_text, iso_to_ms, structured_title};
+use crate::adapters::{
+    AgentAdapter, clean_title, first_text, iso_to_ms, preview_project_jsonl, structured_title,
+};
 
 pub struct QwenAdapter {
     projects_dir: PathBuf,
@@ -165,6 +167,10 @@ impl AgentAdapter for QwenAdapter {
     fn resume_command(&self, session: &AiSession) -> Result<CommandSpec> {
         Ok(CommandSpec::new("qwen", session.directory.clone())
             .with_args(["--resume", session.agent_session_id.as_str()]))
+    }
+
+    fn preview(&self, session_id: &str) -> Result<SessionPreview> {
+        preview_project_jsonl(&self.projects_dir, session_id)
     }
 }
 

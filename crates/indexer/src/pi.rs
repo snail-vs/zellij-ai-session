@@ -5,9 +5,9 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use serde_json::Value;
 
-use zellij_ai_session_core::{AgentKind, AiSession, CommandSpec};
+use zellij_ai_session_core::{AgentKind, AiSession, CommandSpec, SessionPreview};
 
-use crate::adapters::AgentAdapter;
+use crate::adapters::{AgentAdapter, preview_message, preview_result};
 
 pub struct PiAdapter {
     sessions_root: PathBuf,
@@ -141,6 +141,42 @@ impl AgentAdapter for PiAdapter {
     fn resume_command(&self, session: &AiSession) -> Result<CommandSpec> {
         Ok(CommandSpec::new("pi", session.directory.clone())
             .with_args(["--session", session.agent_session_id.as_str()]))
+    }
+
+    fn preview(&self, session_id: &str) -> Result<SessionPreview> {
+        let path = Path::new(session_id);
+        if path.extension().and_then(|ext| ext.to_str()) != Some("jsonl")
+            || !path.canonicalize().ok().is_some_and(|path| {
+                self.sessions_root
+                    .canonicalize()
+                    .ok()
+                    .is_some_and(|root| path.starts_with(root))
+            })
+        {
+            return Ok(preview_result(session_id, false, Vec::new()));
+        }
+        let file = File::open(path)?;
+        let mut messages = Vec::new();
+        for line in BufReader::new(file).lines() {
+            let Ok(value) = serde_json::from_str::<Value>(&line?) else {
+                continue;
+            };
+            if value.get("type").and_then(Value::as_str) != Some("message") {
+                continue;
+            }
+            let Some(message) = value.get("message") else {
+                continue;
+            };
+            let Some(role) = message.get("role").and_then(Value::as_str) else {
+                continue;
+            };
+            if let Some(content) = message.get("content") {
+                if let Some(message) = preview_message(role, content) {
+                    messages.push(message);
+                }
+            }
+        }
+        Ok(preview_result(session_id, true, messages))
     }
 }
 
