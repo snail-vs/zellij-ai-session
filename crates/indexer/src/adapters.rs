@@ -14,7 +14,7 @@ pub trait AgentAdapter: Send + Sync {
         self.list_sessions().map(|sessions| (sessions, Vec::new()))
     }
     fn resume_command(&self, session: &AiSession) -> Result<CommandSpec>;
-    fn rename_session(&self, _session_id: &str, _title: &str) -> Result<()> {
+    fn rename_session(&self, _session: &AiSession, _title: &str) -> Result<()> {
         anyhow::bail!(
             "Workbench has no native rename integration for {}",
             self.name()

@@ -95,6 +95,10 @@ impl AgentAdapter for CodewhaleAdapter {
         AgentKind::Codewhale
     }
 
+    fn rename_session(&self, session: &AiSession, title: &str) -> Result<()> {
+        crate::native_rename::rename_codewhale(&session.agent_session_id, title)
+    }
+
     fn list_sessions(&self) -> Result<Vec<AiSession>> {
         let mut result = Vec::new();
         if !self.sessions_dir.exists() {

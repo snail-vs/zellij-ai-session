@@ -136,3 +136,50 @@ pub(super) fn rename_opencode(session_id: &str, title: &str) -> Result<()> {
     }
     Ok(())
 }
+
+pub(super) fn rename_codewhale(session_id: &str, title: &str) -> Result<()> {
+    let base = std::env::var("CODEWHALE_SERVER_URL").context(
+        "Codewhale native renaming requires CODEWHALE_SERVER_URL for a running local Runtime API",
+    )?;
+    let base = base.trim_end_matches('/');
+    let port = base
+        .strip_prefix("http://127.0.0.1:")
+        .or_else(|| base.strip_prefix("http://localhost:"))
+        .and_then(|port| port.parse::<u16>().ok());
+    anyhow::ensure!(
+        port.is_some_and(|port| port != 0),
+        "Codewhale server URL must be http://127.0.0.1:PORT or http://localhost:PORT"
+    );
+    let body = json!({"title":title}).to_string();
+    let mut command = Command::new("curl");
+    command.args([
+        "--silent",
+        "--show-error",
+        "--noproxy",
+        "*",
+        "--fail-with-body",
+        "--max-time",
+        "30",
+        "-X",
+        "PATCH",
+        "-H",
+        "Content-Type: application/json",
+        "--data-raw",
+        &body,
+    ]);
+    if let Ok(token) = std::env::var("CODEWHALE_RUNTIME_TOKEN") {
+        command.args(["-H", &format!("Authorization: Bearer {token}")]);
+    }
+    let output = command
+        .arg(format!("{base}/v1/sessions/{session_id}"))
+        .output()
+        .context("call Codewhale rename API")?;
+    if !output.status.success() {
+        bail!(
+            "Codewhale rename failed: {} {}",
+            String::from_utf8_lossy(&output.stderr).trim(),
+            String::from_utf8_lossy(&output.stdout).trim()
+        );
+    }
+    Ok(())
+}

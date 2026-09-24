@@ -591,7 +591,7 @@ mod plugin {
                 self.status = "Native session is unavailable".into();
                 return;
             }
-            if !matches!(session.agent, zellij_ai_session_core::AgentKind::Codex | zellij_ai_session_core::AgentKind::OpenCode) {
+            if !matches!(session.agent, zellij_ai_session_core::AgentKind::Codex | zellij_ai_session_core::AgentKind::OpenCode | zellij_ai_session_core::AgentKind::Claude | zellij_ai_session_core::AgentKind::Pi | zellij_ai_session_core::AgentKind::Codewhale) {
                 self.status = format!("Workbench has no native rename integration for {}", session.agent);
                 return;
             }

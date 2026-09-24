@@ -1,6 +1,7 @@
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use anyhow::{Context, Result};
 use serde_json::Value;
@@ -28,6 +29,7 @@ impl ClaudeAdapter {
         let mut created_at_ms: Option<i64> = None;
         let mut updated_at_ms: Option<i64> = None;
         let mut title: Option<String> = None;
+        let mut custom_title: Option<String> = None;
         let mut command_fallback: Option<String> = None;
 
         for line in reader.lines() {
@@ -56,6 +58,18 @@ impl ClaudeAdapter {
                     created_at_ms = Some(value);
                 }
                 updated_at_ms = Some(value);
+            }
+
+            if entry.get("type").and_then(Value::as_str) == Some("custom-title") {
+                let record_id = entry.get("sessionId").and_then(Value::as_str);
+                let file_id = path.file_stem().and_then(|stem| stem.to_str());
+                if record_id.is_none() || record_id == session_id.as_deref().or(file_id) {
+                    custom_title = entry
+                        .get("customTitle")
+                        .and_then(Value::as_str)
+                        .map(clean_title)
+                        .filter(|title| !title.is_empty());
+                }
             }
 
             if title.is_none() {
@@ -91,7 +105,8 @@ impl ClaudeAdapter {
             Some(directory) if !directory.is_empty() => directory.into(),
             _ => return Ok(None),
         };
-        let title = title
+        let title = custom_title
+            .or(title)
             .or(command_fallback)
             .unwrap_or_else(|| format!("Claude session {}", &id[..id.len().min(8)]));
 
@@ -128,6 +143,24 @@ impl AgentAdapter for ClaudeAdapter {
 
     fn agent(&self) -> AgentKind {
         AgentKind::Claude
+    }
+
+    fn rename_session(&self, session: &AiSession, title: &str) -> Result<()> {
+        let output = Command::new("claude")
+            .args([
+                "--print",
+                "--resume",
+                &session.agent_session_id,
+                &format!("/rename {title}"),
+            ])
+            .current_dir(&session.directory)
+            .output()?;
+        anyhow::ensure!(
+            output.status.success(),
+            "Claude rename failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+        Ok(())
     }
 
     fn list_sessions(&self) -> Result<Vec<AiSession>> {
@@ -247,6 +280,21 @@ mod tests {
         assert_eq!(sessions[0].title, "claude-api");
 
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn native_custom_title_overrides_first_prompt() {
+        let root = temp_root("rename");
+        let project = root.join("-tmp");
+        std::fs::create_dir_all(&project).unwrap();
+        let session = project.join("aaaaaaaa-1111-2222-3333-444444444444.jsonl");
+        std::fs::write(&session, concat!(
+            "{\"type\":\"user\",\"sessionId\":\"aaaaaaaa-1111-2222-3333-444444444444\",\"cwd\":\"/tmp\",\"message\":{\"role\":\"user\",\"content\":\"Before\"}}\n",
+            "{\"type\":\"custom-title\",\"sessionId\":\"aaaaaaaa-1111-2222-3333-444444444444\",\"customTitle\":\"After\"}\n"
+        )).unwrap();
+        let sessions = ClaudeAdapter::new(root.clone()).list_sessions().unwrap();
+        assert_eq!(sessions[0].title, "After");
+        std::fs::remove_dir_all(root).ok();
     }
 
     #[test]

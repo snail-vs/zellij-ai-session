@@ -78,7 +78,7 @@ Uninstall removes the installed indexer, WASI plugin and managed keybinding. It 
 Enter   open or resume a session
 /       search all discovered sessions
 r       refresh the index
-R       rename a Codex or OpenCode session through its native tool
+R       rename a supported session through its native tool
 q       close the navigator
 ```
 
@@ -88,7 +88,7 @@ Search covers session title, project, directory and agent name, including Unicod
 
 The details pane reads recent saved messages for supported agents. Cursor's local `prompt_history.json` provides user prompts only, so its preview does not include agent replies.
 
-Renaming succeeds only after the agent's native title is read back. Workbench currently has native rename integrations for Codex and OpenCode; other agents may support renaming in their own interfaces but have no Workbench integration yet. OpenCode renaming requires a running local server: start `opencode serve --hostname 127.0.0.1 --port 4096`, then set `OPENCODE_SERVER_URL=http://127.0.0.1:4096` in the Zellij environment. If the server uses `OPENCODE_SERVER_PASSWORD`, provide the same value to Zellij. The server must use the same OpenCode data directory as the indexer.
+Renaming succeeds only after the agent's native title is read back. Workbench has native rename integrations for Codex, OpenCode, Claude Code, Pi, and Codewhale. Other agents may support renaming in their own interfaces but have no verified Workbench integration yet. OpenCode renaming requires a running local server: start `opencode serve --hostname 127.0.0.1 --port 4096`, then set `OPENCODE_SERVER_URL=http://127.0.0.1:4096` in the Zellij environment. If the server uses `OPENCODE_SERVER_PASSWORD`, provide the same value to Zellij. The server must use the same OpenCode data directory as the indexer. Codewhale renaming requires its TUI Runtime API: start `codewhale app-server --http --auth-token TOKEN`, then set `CODEWHALE_SERVER_URL=http://127.0.0.1:7878` and `CODEWHALE_RUNTIME_TOKEN=TOKEN` in the Zellij environment. The server must use the same `CODEWHALE_HOME` as the indexer. A running Codewhale session can reject external renaming; use Codewhale's own UI for that session.
 
 ## Supported Agents
 

@@ -143,8 +143,8 @@ impl AgentAdapter for CodexAdapter {
         AgentKind::Codex
     }
 
-    fn rename_session(&self, session_id: &str, title: &str) -> Result<()> {
-        crate::native_rename::rename_codex(session_id, title)
+    fn rename_session(&self, session: &AiSession, title: &str) -> Result<()> {
+        crate::native_rename::rename_codex(&session.agent_session_id, title)
     }
 
     fn list_sessions(&self) -> Result<Vec<AiSession>> {

@@ -98,14 +98,12 @@ impl Indexer {
             .iter()
             .find(|adapter| adapter.agent() == agent)
             .ok_or_else(|| anyhow::anyhow!("no adapter registered for {agent}"))?;
-        anyhow::ensure!(
-            adapter
-                .list_sessions()?
-                .iter()
-                .any(|s| s.agent_session_id == session_id),
-            "native session {session_id} was not found"
-        );
-        adapter.rename_session(session_id, title)?;
+        let session = adapter
+            .list_sessions()?
+            .into_iter()
+            .find(|s| s.agent_session_id == session_id)
+            .ok_or_else(|| anyhow::anyhow!("native session {session_id} was not found"))?;
+        adapter.rename_session(&session, title)?;
         for _ in 0..10 {
             if let Some(session) = adapter
                 .list_sessions()?

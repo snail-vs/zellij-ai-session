@@ -1,6 +1,7 @@
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use anyhow::{Context, Result};
 use serde_json::Value;
@@ -106,6 +107,39 @@ impl AgentAdapter for PiAdapter {
 
     fn agent(&self) -> AgentKind {
         AgentKind::Pi
+    }
+
+    fn rename_session(&self, session: &AiSession, title: &str) -> Result<()> {
+        let path = Path::new(&session.agent_session_id);
+        anyhow::ensure!(
+            path.extension().and_then(|ext| ext.to_str()) == Some("jsonl")
+                && path.canonicalize().ok().is_some_and(|path| {
+                    self.sessions_root
+                        .canonicalize()
+                        .ok()
+                        .is_some_and(|root| path.starts_with(root))
+                }),
+            "Pi session file is outside the configured session directory"
+        );
+        let output = Command::new("pi")
+            .args([
+                "--session",
+                &session.agent_session_id,
+                "--name",
+                title,
+                "--print",
+                "--offline",
+                "--no-extensions",
+                "--no-context-files",
+            ])
+            .current_dir(&session.directory)
+            .output()?;
+        anyhow::ensure!(
+            output.status.success(),
+            "Pi rename failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+        Ok(())
     }
 
     fn list_sessions(&self) -> Result<Vec<AiSession>> {
