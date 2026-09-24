@@ -52,6 +52,7 @@ mod plugin {
         indexer: String,
         open_mode: OpenMode,
         scroll_offset: usize,
+        visible_rows: usize,
         preview: Option<SessionPreview>,
         preview_error: Option<String>,
         preview_error_id: Option<String>,
@@ -127,11 +128,12 @@ mod plugin {
 
             let viewport = rows.saturating_sub(7).max(1);
             let now_ms = Utc::now().timestamp_millis();
-            self.ensure_visible(if matches!(self.view, View::Tree) && cols < 72 {
+            self.visible_rows = if matches!(self.view, View::Tree) && cols < 72 {
                 (viewport / 2).max(2)
             } else {
                 viewport
-            });
+            };
+            self.ensure_visible(self.visible_rows);
             match self.view {
                 View::Tree => {
                     self.render_tree(viewport, now_ms, cols);
@@ -145,7 +147,7 @@ mod plugin {
             println!("{}", "─".repeat(cols.max(1)));
             match self.view {
                 View::Tree => println!(
-                    "Enter open/toggle   ←/→ collapse/expand   p project   m parent   / search   r refresh   q close"
+                    "Enter open   Space toggle   ←/→ collapse/expand   C/E all   g/G/M first/mid/last   p project   m parent   / search   r refresh   q close"
                 ),
                 View::Search => println!("Type or paste to search   Backspace erase   Esc back"),
                 View::ProjectForm => println!("Tab next field   Enter save   Esc cancel"),
@@ -362,8 +364,33 @@ mod plugin {
                         self.move_selection(-1);
                         true
                     }
+                    BareKey::Char('C') => {
+                        self.collapse_all_projects();
+                        true
+                    }
+                    BareKey::Char('E') => {
+                        self.expand_all_projects();
+                        true
+                    }
+                    BareKey::Char('g') => {
+                        self.jump_to_visible_item(0);
+                        true
+                    }
+                    BareKey::Char('G') => {
+                        self.jump_to_visible_item(self.tree_items().len().saturating_sub(1));
+                        true
+                    }
+                    BareKey::Char('M') => {
+                        let len = self.tree_items().len();
+                        self.jump_to_visible_item(len.saturating_sub(1) / 2);
+                        true
+                    }
                     BareKey::Enter => {
                         self.activate_tree_item();
+                        true
+                    }
+                    BareKey::Char(' ') => {
+                        self.toggle_selected_expandable();
                         true
                     }
                     BareKey::Left => {
@@ -576,6 +603,64 @@ mod plugin {
             if let Some(id) = self.selected_expandable_id() {
                 self.collapsed.remove(&id);
             }
+        }
+
+        fn toggle_selected_expandable(&mut self) {
+            if let Some(id) = self.selected_expandable_id() {
+                self.toggle(&id);
+            }
+        }
+
+        fn collapse_all_projects(&mut self) {
+            let selected_project_id = match self.tree_items().get(self.selected) {
+                Some(TreeItem::Project(summary)) => Some(summary.project.id.clone()),
+                Some(TreeItem::Session(session, _)) => Some(session.project_id.clone()),
+                None => None,
+            };
+            let project_ids: Vec<String> = self
+                .projects()
+                .into_iter()
+                .map(|summary| summary.project.id.clone())
+                .collect();
+            self.collapsed.extend(project_ids.iter().cloned());
+
+            let visible = self.tree_items();
+            self.selected = selected_project_id
+                .and_then(|project_id| {
+                    visible.iter().position(|item| {
+                        matches!(item, TreeItem::Project(summary) if summary.project.id == project_id)
+                    })
+                })
+                .unwrap_or(0);
+            self.ensure_visible(self.last_viewport());
+        }
+
+        fn expand_all_projects(&mut self) {
+            let project_ids: Vec<String> = self
+                .projects()
+                .into_iter()
+                .map(|summary| summary.project.id.clone())
+                .collect();
+            for project_id in project_ids {
+                self.collapsed.remove(&project_id);
+            }
+            self.clamp_selection();
+            self.ensure_visible(self.last_viewport());
+        }
+
+        fn jump_to_visible_item(&mut self, index: usize) {
+            let len = self.tree_items().len();
+            if len == 0 {
+                self.selected = 0;
+                self.scroll_offset = 0;
+                return;
+            }
+            self.selected = index.min(len - 1);
+            self.ensure_visible(self.last_viewport());
+        }
+
+        fn last_viewport(&self) -> usize {
+            self.visible_rows.max(1)
         }
 
         fn start_parent_picker(&mut self) {
