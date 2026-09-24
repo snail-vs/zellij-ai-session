@@ -21,6 +21,9 @@ fn main() -> Result<()> {
     if command == "set-parent" {
         return set_parent_command(args.collect());
     }
+    if command == "preview" {
+        return preview_command(args.collect());
+    }
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -30,7 +33,7 @@ fn main() -> Result<()> {
             "--workbench-db" => workbench_db = args.next().map(Into::into),
             "--help" | "-h" => {
                 println!(
-                    "zellij-ai-session-index [scan|resume|new|create-project|set-parent] [options]"
+                    "zellij-ai-session-index [scan|resume|new|create-project|set-parent|preview] [options]"
                 );
                 return Ok(());
             }
@@ -42,6 +45,31 @@ fn main() -> Result<()> {
     let db_path = workbench_db.unwrap_or(WorkbenchStore::default_path()?);
     let snapshot = WorkbenchStore::open(&db_path)?.merge(snapshot)?;
     println!("{}", serde_json::to_string_pretty(&snapshot)?);
+    Ok(())
+}
+
+fn preview_command(args: Vec<String>) -> Result<()> {
+    let mut agent = None;
+    let mut session_id = None;
+    let mut config = IndexerConfig::default();
+    let mut args = args.into_iter();
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--agent" => agent = args.next(),
+            "--session-id" => session_id = args.next(),
+            "--codex-home" => config.codex_home = args.next().map(Into::into),
+            "--opencode-db" => config.opencode_db = args.next().map(Into::into),
+            unknown => anyhow::bail!("unknown preview argument: {unknown}"),
+        }
+    }
+    let agent = agent.ok_or_else(|| anyhow::anyhow!("missing --agent"))?;
+    let agent = AgentKind::from_command_name(&agent)
+        .ok_or_else(|| anyhow::anyhow!("unsupported agent: {agent}"))?;
+    let session_id = session_id.ok_or_else(|| anyhow::anyhow!("missing --session-id"))?;
+    println!(
+        "{}",
+        serde_json::to_string(&Indexer::from_config(config).preview(agent, &session_id)?)?
+    );
     Ok(())
 }
 

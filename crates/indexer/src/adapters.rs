@@ -2,7 +2,7 @@ use std::path::Path;
 
 use anyhow::Result;
 use serde_json::Value;
-use zellij_ai_session_core::{AgentKind, AiSession, CommandSpec};
+use zellij_ai_session_core::{AgentKind, AiSession, CommandSpec, SessionPreview};
 
 pub trait AgentAdapter: Send + Sync {
     fn name(&self) -> &'static str;
@@ -12,6 +12,13 @@ pub trait AgentAdapter: Send + Sync {
         self.list_sessions().map(|sessions| (sessions, Vec::new()))
     }
     fn resume_command(&self, session: &AiSession) -> Result<CommandSpec>;
+    fn preview(&self, session_id: &str) -> Result<SessionPreview> {
+        Ok(SessionPreview {
+            session_id: session_id.into(),
+            messages: Vec::new(),
+            note: Some(format!("{} preview is not supported", self.name())),
+        })
+    }
 }
 
 /// Parse an RFC 3339 / ISO 8601 timestamp (e.g. `2024-12-03T14:00:00.000Z`)

@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use serde_json::Value;
-use zellij_ai_session_core::{AgentKind, AiSession, CommandSpec};
+use zellij_ai_session_core::{AgentKind, AiSession, CommandSpec, PreviewMessage, SessionPreview};
 
 use crate::adapters::AgentAdapter;
 
@@ -154,6 +154,117 @@ impl AgentAdapter for CodexAdapter {
     fn resume_command(&self, session: &AiSession) -> Result<CommandSpec> {
         Ok(CommandSpec::new("codex", session.directory.clone())
             .with_args(["resume", session.agent_session_id.as_str()]))
+    }
+
+    fn preview(&self, session_id: &str) -> Result<SessionPreview> {
+        let mut entries = Vec::new();
+        let mut found = false;
+        if !self.sessions_root.exists() {
+            anyhow::bail!("Codex history directory is unavailable");
+        }
+        visit_jsonl(&self.sessions_root, &mut |path| {
+            // Codex writes session_meta at the beginning of each JSONL page.
+            // Inspect only that small prefix before reading message history.
+            if native_session_id(path)?.as_deref() != Some(session_id) {
+                return Ok(());
+            }
+            found = true;
+            let file = File::open(path)?;
+            let mut page = Vec::new();
+            for line in BufReader::new(file).lines() {
+                let line = line?;
+                let Ok(value) = serde_json::from_str::<Value>(&line) else {
+                    continue;
+                };
+                if value.get("type").and_then(Value::as_str) == Some("response_item") {
+                    let payload = value.get("payload").unwrap_or(&value);
+                    let role = payload.get("role").and_then(Value::as_str);
+                    if matches!(role, Some("user" | "assistant")) {
+                        let text = payload.get("content").map(collect_text).unwrap_or_default();
+                        if !text.trim().is_empty() {
+                            page.push((
+                                value_timestamp(&value).unwrap_or(0),
+                                PreviewMessage {
+                                    role: role.unwrap().into(),
+                                    text,
+                                },
+                            ));
+                        }
+                    }
+                }
+            }
+            entries.extend(page);
+            Ok(())
+        })?;
+        entries.sort_by_key(|entry| entry.0);
+        let messages = entries
+            .into_iter()
+            .rev()
+            .take(8)
+            .map(|entry| entry.1)
+            .collect::<Vec<_>>();
+        let mut messages = messages;
+        messages.reverse();
+        let note = if !found {
+            Some("Native Codex session was not found".into())
+        } else if messages.is_empty() {
+            Some("No readable user or Agent messages have been saved yet".into())
+        } else {
+            None
+        };
+        Ok(SessionPreview {
+            session_id: session_id.into(),
+            note,
+            messages,
+        })
+    }
+}
+
+fn native_session_id(path: &Path) -> Result<Option<String>> {
+    let file = File::open(path)?;
+    let mut reader = BufReader::new(file);
+    let mut line = String::new();
+    let mut bytes = 0;
+    for _ in 0..16 {
+        line.clear();
+        let read = std::io::BufRead::read_line(&mut reader, &mut line)?;
+        if read == 0 {
+            break;
+        }
+        bytes += read;
+        let Ok(value) = serde_json::from_str::<Value>(&line) else {
+            continue;
+        };
+        if value.get("type").and_then(Value::as_str) == Some("session_meta") {
+            let payload = value.get("payload").unwrap_or(&value);
+            return Ok(payload
+                .get("session_id")
+                .or_else(|| payload.get("id"))
+                .and_then(Value::as_str)
+                .map(str::to_owned));
+        }
+        if bytes >= 256 * 1024 {
+            break;
+        }
+    }
+    Ok(None)
+}
+
+fn collect_text(value: &Value) -> String {
+    match value {
+        Value::String(text) => text.clone(),
+        Value::Array(parts) => parts
+            .iter()
+            .map(collect_text)
+            .filter(|text| !text.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n"),
+        Value::Object(object) => object
+            .get("text")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned(),
+        _ => String::new(),
     }
 }
 
@@ -321,6 +432,43 @@ mod tests {
         assert!(sessions[0].updated_at_ms > sessions[0].created_at_ms);
         assert_eq!(warnings.len(), 1);
         assert!(warnings[0].contains("no native session ID"));
+        let preview = adapter.preview("thread-1").unwrap();
+        assert!(
+            preview
+                .messages
+                .iter()
+                .any(|message| message.text == "Initial task")
+        );
+        assert!(
+            preview
+                .messages
+                .iter()
+                .any(|message| message.text == "Follow-up")
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn preview_reads_only_requested_native_id() {
+        let root = std::env::temp_dir().join(format!("codex-preview-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        for (id, text) in [("one", "first"), ("two", "second")] {
+            std::fs::write(root.join(format!("{id}.jsonl")), format!(
+                "{{\"type\":\"session_meta\",\"payload\":{{\"session_id\":\"{id}\",\"cwd\":\"/tmp\"}}}}\n{{\"timestamp\":\"2026-01-01T00:00:00Z\",\"type\":\"response_item\",\"payload\":{{\"role\":\"user\",\"content\":[{{\"type\":\"input_text\",\"text\":\"{text}\"}}]}}}}\n"
+            )).unwrap();
+        }
+        let adapter = CodexAdapter::new(root.clone(), root.join("index"));
+        let preview = adapter.preview("two").unwrap();
+        assert_eq!(preview.messages.len(), 1);
+        assert_eq!(preview.messages[0].text, "second");
+        assert!(
+            adapter
+                .preview("missing")
+                .unwrap()
+                .note
+                .unwrap()
+                .contains("not found")
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 }

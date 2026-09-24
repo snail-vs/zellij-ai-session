@@ -15,7 +15,8 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use zellij_ai_session_core::{
-    AiSession, CommandSpec, IndexSnapshot, RuntimeRef, SessionStatus, build_snapshot,
+    AgentKind, AiSession, CommandSpec, IndexSnapshot, RuntimeRef, SessionPreview, SessionStatus,
+    build_snapshot,
 };
 
 pub use adapters::{AdapterContext, AgentAdapter};
@@ -65,6 +66,14 @@ impl Indexer {
             .find(|adapter| adapter.agent() == session.agent)
             .ok_or_else(|| anyhow::anyhow!("no adapter registered for {}", session.agent))?
             .resume_command(session)
+    }
+
+    pub fn preview(&self, agent: AgentKind, session_id: &str) -> Result<SessionPreview> {
+        self.adapters
+            .iter()
+            .find(|adapter| adapter.agent() == agent)
+            .ok_or_else(|| anyhow::anyhow!("no adapter registered for {agent}"))?
+            .preview(session_id)
     }
 }
 

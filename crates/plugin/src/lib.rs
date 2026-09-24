@@ -7,9 +7,11 @@ mod plugin {
     use std::path::PathBuf;
 
     use chrono::{Local, TimeZone, Utc};
+    use unicode_width::UnicodeWidthChar;
     use zellij_ai_session_core::{
         AiSession, CommandSpec, IndexSnapshot, ProjectSort, ProjectSummary, RuntimeConfidence,
-        RuntimeRef, SessionSort, SessionStatus, search_key, sort_projects, sort_sessions,
+        RuntimeRef, SessionPreview, SessionSort, SessionStatus, search_key, sort_projects,
+        sort_sessions,
     };
     use zellij_tile::prelude::*;
 
@@ -50,6 +52,11 @@ mod plugin {
         indexer: String,
         open_mode: OpenMode,
         scroll_offset: usize,
+        preview: Option<SessionPreview>,
+        preview_error: Option<String>,
+        preview_error_id: Option<String>,
+        preview_pending: Option<String>,
+        preview_started_at_ms: Option<i64>,
     }
 
     impl ZellijPlugin for AiSessionPlugin {
@@ -79,12 +86,11 @@ mod plugin {
                 PermissionType::RunCommands,
                 PermissionType::ChangeApplicationState,
             ]);
-            set_timeout(0.2);
             self.refresh();
         }
 
         fn update(&mut self, event: Event) -> bool {
-            match event {
+            let changed = match event {
                 Event::Key(key) => self.handle_key(key),
                 Event::PaneUpdate(manifest) => {
                     self.update_runtime(manifest);
@@ -103,11 +109,15 @@ mod plugin {
                     true
                 }
                 Event::Timer(_) => {
-                    self.refresh();
+                    self.check_preview_timeout();
                     true
                 }
                 _ => false,
+            };
+            if changed && self.view == View::Tree {
+                self.request_selected_preview();
             }
+            changed
         }
 
         fn render(&mut self, rows: usize, cols: usize) {
@@ -117,9 +127,15 @@ mod plugin {
 
             let viewport = rows.saturating_sub(7).max(1);
             let now_ms = Utc::now().timestamp_millis();
-            self.ensure_visible(viewport);
+            self.ensure_visible(if matches!(self.view, View::Tree) && cols < 72 {
+                (viewport / 2).max(2)
+            } else {
+                viewport
+            });
             match self.view {
-                View::Tree => self.render_tree(viewport, now_ms),
+                View::Tree => {
+                    self.render_tree(viewport, now_ms, cols);
+                }
                 View::Search => self.render_search(viewport, now_ms),
                 View::ProjectForm => self.render_project_form(),
                 View::ParentPicker => self.render_parent_picker(viewport),
@@ -143,6 +159,9 @@ mod plugin {
 
     impl AiSessionPlugin {
         fn refresh(&mut self) {
+            self.preview = None;
+            self.preview_error = None;
+            self.preview_error_id = None;
             let mut context = BTreeMap::new();
             context.insert("action".into(), "index".into());
             run_command(&[self.indexer.as_str()], context);
@@ -220,6 +239,47 @@ mod plugin {
             context: BTreeMap<String, String>,
         ) -> bool {
             let action = context.get("action").map(String::as_str);
+            if action == Some("preview") {
+                let id = context.get("session_id").cloned().unwrap_or_default();
+                eprintln!(
+                    "[session-preview] result key={id} exit={exit_code:?} stdout_bytes={} stderr_bytes={}",
+                    stdout.len(),
+                    stderr.len()
+                );
+                if self.preview_pending.as_deref() == Some(&id) {
+                    self.preview_pending = None;
+                    self.preview_started_at_ms = None;
+                }
+                if self.selected_session_id().as_deref() == Some(&id) {
+                    if exit_code == Some(0) {
+                        match serde_json::from_slice::<SessionPreview>(&stdout) {
+                            Ok(preview) if self.tree_items().get(self.selected).is_some_and(|item| {
+                                matches!(item, TreeItem::Session(session, _) if session.id == id && session.agent_session_id == preview.session_id)
+                            }) => {
+                                self.preview = Some(preview);
+                                self.preview_error = None;
+                                self.preview_error_id = None;
+                            }
+                            Err(error) => {
+                                self.preview_error = Some(format!("Invalid preview response: {error}"));
+                                self.preview_error_id = Some(id);
+                            }
+                            Ok(_) => {
+                                self.preview_error = Some("Preview response belongs to another native session".into());
+                                self.preview_error_id = Some(id);
+                            }
+                        }
+                    } else {
+                        self.preview_error = Some(format!(
+                            "Indexer exit {:?}: {}",
+                            exit_code,
+                            command_error(stderr)
+                        ));
+                        self.preview_error_id = Some(id);
+                    }
+                }
+                return true;
+            }
             if matches!(action, Some("resume" | "new")) {
                 if exit_code == Some(0) {
                     match serde_json::from_slice::<CommandSpec>(&stdout) {
@@ -748,17 +808,94 @@ mod plugin {
             start..(start + viewport).min(len)
         }
 
-        fn render_tree(&self, viewport: usize, now_ms: i64) {
-            println!("Projects and sessions");
+        fn selected_session_id(&self) -> Option<String> {
+            match self.tree_items().get(self.selected) {
+                Some(TreeItem::Session(session, _)) => Some(session.id.clone()),
+                _ => None,
+            }
+        }
+
+        fn request_selected_preview(&mut self) {
+            let Some(TreeItem::Session(session, _)) = self.tree_items().get(self.selected).cloned()
+            else {
+                return;
+            };
+            if !session.native_available
+                || self
+                    .preview
+                    .as_ref()
+                    .is_some_and(|p| p.session_id == session.agent_session_id)
+                || self.preview_error_id.as_deref() == Some(&session.id)
+                || self.preview_pending.is_some()
+            {
+                return;
+            }
+            let mut context = BTreeMap::new();
+            context.insert("action".into(), "preview".into());
+            context.insert("session_id".into(), session.id.clone());
+            eprintln!(
+                "[session-preview] request key={} native={}",
+                session.id, session.agent_session_id
+            );
+            run_command(
+                &[
+                    self.indexer.as_str(),
+                    "preview",
+                    "--agent",
+                    session.agent.command_name(),
+                    "--session-id",
+                    session.agent_session_id.as_str(),
+                ],
+                context,
+            );
+            self.preview_pending = Some(session.id);
+            self.preview_started_at_ms = Some(Utc::now().timestamp_millis());
+            set_timeout(1.0);
+        }
+
+        fn check_preview_timeout(&mut self) {
+            let Some(id) = self.preview_pending.clone() else {
+                return;
+            };
+            let elapsed = Utc::now()
+                .timestamp_millis()
+                .saturating_sub(self.preview_started_at_ms.unwrap_or_default());
+            if elapsed >= 10_000 {
+                eprintln!("[session-preview] timeout key={id} elapsed_ms={elapsed}");
+                self.preview_pending = None;
+                self.preview_started_at_ms = None;
+                self.preview_error_id = Some(id);
+                self.preview_error = Some(
+                    "No preview command result after 10 seconds; check the indexer path, permissions, or Zellij logs".into(),
+                );
+            } else {
+                set_timeout(1.0);
+            }
+        }
+
+        fn render_tree(&self, viewport: usize, now_ms: i64, cols: usize) {
             let items = self.tree_items();
+            let split = cols >= 72;
+            let tree_viewport = if split {
+                viewport
+            } else {
+                (viewport / 2).max(2)
+            };
+            let left_width = if split {
+                (cols / 2).clamp(28, 48)
+            } else {
+                cols
+            };
+            let right_width = cols.saturating_sub(left_width + 3);
+            let mut left = vec!["Projects and sessions".to_string()];
             if items.is_empty() {
-                println!("  No projects found. Press p to create one.");
+                left.push("  No projects found. Press p to create one.".into());
             }
             for (index, item) in items
                 .iter()
                 .enumerate()
-                .skip(self.visible_range(items.len(), viewport).start)
-                .take(viewport)
+                .skip(self.visible_range(items.len(), tree_viewport).start)
+                .take(tree_viewport)
             {
                 let marker = if index == self.selected { ">" } else { " " };
                 match item {
@@ -768,12 +905,12 @@ mod plugin {
                         } else {
                             "▾"
                         };
-                        println!(
+                        left.push(format!(
                             "{marker} {arrow} {} ({})  {}",
                             summary.project.name,
                             summary.session_count,
                             format_updated_at(summary.latest_updated_at_ms, now_ms)
-                        );
+                        ));
                     }
                     TreeItem::Session(session, depth) => {
                         let has_children = self.snapshot.as_ref().is_some_and(|snapshot| {
@@ -789,7 +926,7 @@ mod plugin {
                         } else {
                             "▾"
                         };
-                        println!(
+                        left.push(format!(
                             "{marker} {}{arrow} {} {}  {}{}",
                             "  ".repeat(*depth),
                             status_marker(session),
@@ -800,24 +937,123 @@ mod plugin {
                             } else {
                                 " [native unavailable]"
                             }
-                        );
+                        ));
                     }
                 }
             }
-            if let Some(item) = items.get(self.selected) {
-                match item {
-                    TreeItem::Project(summary) => println!(
-                        "Project directory: {}",
-                        summary.project.root_directory.display()
-                    ),
-                    TreeItem::Session(session, _) => println!(
-                        "{} · {} · {}",
-                        session.agent,
-                        session.directory.display(),
-                        session.id
-                    ),
+            let detail = self.preview_lines(
+                items.get(self.selected),
+                if split { right_width } else { cols },
+                viewport,
+            );
+            if split {
+                for row in 0..viewport + 1 {
+                    let line = left.get(row).map(String::as_str).unwrap_or("");
+                    let displayed = clip(line, left_width);
+                    let pad = left_width
+                        .saturating_sub(displayed.chars().map(|c| c.width().unwrap_or(0)).sum());
+                    println!(
+                        "{}{} │ {}",
+                        displayed,
+                        " ".repeat(pad),
+                        clip(
+                            detail.get(row).map(String::as_str).unwrap_or(""),
+                            right_width
+                        )
+                    );
+                }
+            } else {
+                for line in left.into_iter().take(tree_viewport + 1) {
+                    println!("{}", clip(&line, cols));
+                }
+                println!("{}", "─".repeat(cols));
+                for line in detail
+                    .into_iter()
+                    .take(viewport.saturating_sub(tree_viewport))
+                {
+                    println!("{}", clip(&line, cols));
                 }
             }
+        }
+
+        fn preview_lines(
+            &self,
+            item: Option<&TreeItem>,
+            width: usize,
+            height: usize,
+        ) -> Vec<String> {
+            let mut lines = Vec::new();
+            match item {
+                Some(TreeItem::Project(summary)) => {
+                    lines.push(summary.project.name.clone());
+                    lines.push(format!(
+                        "{} sessions · {} running",
+                        summary.session_count, summary.running_count
+                    ));
+                    lines.push(summary.project.root_directory.display().to_string());
+                }
+                Some(TreeItem::Session(session, _)) => {
+                    lines.push(session.title.clone());
+                    lines.push(format!(
+                        "{} · {}",
+                        session.agent,
+                        if !session.native_available {
+                            "native unavailable"
+                        } else if session.status == SessionStatus::Running {
+                            "running"
+                        } else {
+                            "historical"
+                        }
+                    ));
+                    lines.push(session.directory.display().to_string());
+                    lines.push(String::new());
+                    if !session.native_available {
+                        lines.push("Native history is unavailable".into());
+                    } else if let Some(preview) = self
+                        .preview
+                        .as_ref()
+                        .filter(|p| p.session_id == session.agent_session_id)
+                    {
+                        if let Some(note) = &preview.note {
+                            lines.push(note.clone());
+                        }
+                        if !preview.messages.is_empty() {
+                            lines.push("Recent messages (newest first)".into());
+                        }
+                        for message in preview.messages.iter().rev() {
+                            lines.push(format!(
+                                "{}:",
+                                if message.role == "user" {
+                                    "User"
+                                } else {
+                                    "Agent"
+                                }
+                            ));
+                            for line in message.text.lines().take(4) {
+                                lines.extend(wrap_text(line, width, 3));
+                            }
+                            lines.push(String::new());
+                        }
+                    } else if self.preview_error_id.as_deref() == Some(&session.id) {
+                        lines.push(format!(
+                            "Preview unavailable: {}",
+                            self.preview_error.as_deref().unwrap_or("unknown error")
+                        ));
+                    } else {
+                        let detail = if self.preview_pending.as_deref() == Some(&session.id) {
+                            format!("Waiting for indexer result: {}", session.agent_session_id)
+                        } else if self.preview_pending.is_some() {
+                            "Waiting for previous preview request".into()
+                        } else {
+                            "Preview request not started".into()
+                        };
+                        lines.push(format!("Loading native history… {detail}"));
+                    }
+                }
+                None => {}
+            }
+            lines.truncate(height + 1);
+            lines
         }
 
         fn render_search(&self, viewport: usize, now_ms: i64) {
@@ -935,6 +1171,56 @@ mod plugin {
         } else {
             message
         }
+    }
+
+    fn clip(text: &str, width: usize) -> String {
+        let mut out = String::new();
+        let mut used = 0;
+        for c in text.chars() {
+            if c.is_control() {
+                continue;
+            }
+            let char_width = c.width().unwrap_or(0);
+            if used + char_width > width {
+                break;
+            }
+            out.push(c);
+            used += char_width;
+        }
+        out
+    }
+
+    fn wrap_text(text: &str, width: usize, max_lines: usize) -> Vec<String> {
+        let width = width.max(1);
+        let mut lines = Vec::new();
+        let mut chars = text.chars().peekable();
+        for _ in 0..max_lines {
+            let mut part = String::new();
+            let mut used = 0;
+            while let Some(&c) = chars.peek() {
+                if c.is_control() {
+                    chars.next();
+                    continue;
+                }
+                let char_width = c.width().unwrap_or(0);
+                if used + char_width > width {
+                    break;
+                }
+                part.push(c);
+                chars.next();
+                used += char_width;
+            }
+            if part.is_empty() {
+                break;
+            }
+            lines.push(part);
+        }
+        if chars.peek().is_some() {
+            if let Some(last) = lines.last_mut() {
+                last.push('…');
+            }
+        }
+        lines
     }
 }
 

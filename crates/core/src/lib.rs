@@ -181,6 +181,19 @@ pub struct AiSession {
     pub work_state: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PreviewMessage {
+    pub role: String,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionPreview {
+    pub session_id: String,
+    pub messages: Vec<PreviewMessage>,
+    pub note: Option<String>,
+}
+
 impl AiSession {
     pub fn new(
         agent: AgentKind,
