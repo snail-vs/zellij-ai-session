@@ -140,6 +140,11 @@ jobs:
       contents: write
 
     steps:
+      - name: Check out release source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
       - name: Download release assets
         uses: actions/download-artifact@v4
         with:
@@ -155,9 +160,28 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
-        run: >-
-          gh release create "$RELEASE_TAG"
-          dist/*
-          --repo "${{ github.repository }}"
-          --title "zellij-ai-session $RELEASE_TAG"
-          --generate-notes
+        run: |
+          version="${RELEASE_TAG#v}"
+          notes_args=(--generate-notes)
+
+          if awk -v version="$version" '
+            BEGIN { heading = "## [" version "]" }
+            index($0, heading) == 1 && (length($0) == length(heading) || substr($0, length(heading) + 1, 1) ~ /[[:space:]]/) {
+              in_section = 1
+              found = 1
+              next
+            }
+            in_section && /^## / { exit }
+            in_section { print }
+            END { if (!found) exit 1 }
+          ' CHANGELOG.md > .release-notes.md; then
+            notes_args=(--notes-file .release-notes.md)
+          else
+            echo "::warning::No CHANGELOG.md section found for $RELEASE_TAG; using GitHub-generated notes."
+          fi
+
+          gh release create "$RELEASE_TAG" \
+            dist/* \
+            --repo "${{ github.repository }}" \
+            --title "zellij-ai-session $RELEASE_TAG" \
+            "${notes_args[@]}"
