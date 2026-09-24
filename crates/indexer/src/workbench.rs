@@ -166,6 +166,13 @@ impl WorkbenchStore {
         Ok(())
     }
 
+    /// Drop a legacy local title so subsequent scans display the native name.
+    pub fn clear_title_override(&self, id: &str) -> Result<()> {
+        self.connection
+            .execute("UPDATE session SET title_override=NULL WHERE id=?1", [id])?;
+        Ok(())
+    }
+
     pub fn save_session(&mut self, record: &SessionRecord) -> Result<()> {
         parse_key(&record.id)?;
         let transaction = self.connection.transaction()?;
@@ -374,9 +381,6 @@ impl WorkbenchStore {
                 session.parent_id = record.parent_id.clone();
                 session.selected_cwd = record.selected_cwd.clone();
                 session.work_state = record.work_state.clone();
-                if let Some(title) = &record.title_override {
-                    session.title = title.clone();
-                }
             } else {
                 let root = normalize_directory(&session.directory);
                 let name = root
@@ -588,7 +592,7 @@ mod tests {
             .iter()
             .find(|item| item.id == "codex:parent")
             .unwrap();
-        assert_eq!(saved_parent.title, "My plan");
+        assert_eq!(saved_parent.title, "Native title");
         let missing_child = merged
             .sessions
             .iter()

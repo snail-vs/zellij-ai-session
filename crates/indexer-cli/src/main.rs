@@ -24,6 +24,9 @@ fn main() -> Result<()> {
     if command == "preview" {
         return preview_command(args.collect());
     }
+    if command == "rename-session" {
+        return rename_session_command(args.collect());
+    }
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -33,7 +36,7 @@ fn main() -> Result<()> {
             "--workbench-db" => workbench_db = args.next().map(Into::into),
             "--help" | "-h" => {
                 println!(
-                    "zellij-ai-session-index [scan|resume|new|create-project|set-parent|preview] [options]"
+                    "zellij-ai-session-index [scan|resume|new|create-project|set-parent|preview|rename-session] [options]"
                 );
                 return Ok(());
             }
@@ -45,6 +48,48 @@ fn main() -> Result<()> {
     let db_path = workbench_db.unwrap_or(WorkbenchStore::default_path()?);
     let snapshot = WorkbenchStore::open(&db_path)?.merge(snapshot)?;
     println!("{}", serde_json::to_string_pretty(&snapshot)?);
+    Ok(())
+}
+
+fn rename_session_command(args: Vec<String>) -> Result<()> {
+    let mut id = None;
+    let mut title = None;
+    let mut config = IndexerConfig::default();
+    let mut workbench_db = None;
+    let mut args = args.into_iter();
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--id" => id = args.next(),
+            "--title" => title = args.next(),
+            "--codex-home" => config.codex_home = args.next().map(Into::into),
+            "--opencode-db" => config.opencode_db = args.next().map(Into::into),
+            "--workbench-db" => workbench_db = args.next().map(Into::into),
+            unknown => anyhow::bail!("unknown rename-session argument: {unknown}"),
+        }
+    }
+    let id = id.ok_or_else(|| anyhow::anyhow!("missing --id"))?;
+    let title = title.ok_or_else(|| anyhow::anyhow!("missing --title"))?;
+    let (agent_name, native_id) = id
+        .split_once(':')
+        .ok_or_else(|| anyhow::anyhow!("invalid session ID: {id}"))?;
+    let agent = AgentKind::from_command_name(agent_name)
+        .ok_or_else(|| anyhow::anyhow!("unsupported agent: {agent_name}"))?;
+    let indexer = Indexer::from_config(config);
+    let renamed = indexer.rename_session(agent, native_id, &title)?;
+    let db_path = workbench_db.unwrap_or(WorkbenchStore::default_path()?);
+    let mut store = WorkbenchStore::open(&db_path)?;
+    store.clear_title_override(&id)?;
+    let after = store.merge(indexer.scan())?;
+    let visible = after
+        .sessions
+        .iter()
+        .find(|session| session.id == id)
+        .ok_or_else(|| anyhow::anyhow!("renamed session disappeared from workbench"))?;
+    anyhow::ensure!(
+        visible.title == renamed.title,
+        "native rename succeeded but workbench still displays a different title; check saved metadata"
+    );
+    println!("{}", serde_json::to_string(visible)?);
     Ok(())
 }
 

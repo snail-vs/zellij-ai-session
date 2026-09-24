@@ -14,6 +14,9 @@ pub trait AgentAdapter: Send + Sync {
         self.list_sessions().map(|sessions| (sessions, Vec::new()))
     }
     fn resume_command(&self, session: &AiSession) -> Result<CommandSpec>;
+    fn rename_session(&self, _session_id: &str, _title: &str) -> Result<()> {
+        anyhow::bail!("{} does not support native session renaming", self.name())
+    }
     fn preview(&self, session_id: &str) -> Result<SessionPreview> {
         Ok(SessionPreview {
             session_id: session_id.into(),

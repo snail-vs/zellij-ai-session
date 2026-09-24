@@ -76,10 +76,9 @@ Uninstall removes the installed indexer, WASI plugin and managed keybinding. It 
 
 ```text
 Enter   open or resume a session
-n       create a session, then choose an agent
-x       close the runtime, keep agent history
 /       search all discovered sessions
 r       refresh the index
+R       rename a Codex or OpenCode session through its native tool
 q       close the navigator
 ```
 
@@ -88,6 +87,8 @@ q       close the navigator
 Search covers session title, project, directory and agent name, including Unicode substrings such as Chinese text.
 
 The details pane reads recent saved messages for supported agents. Cursor's local `prompt_history.json` provides user prompts only, so its preview does not include agent replies.
+
+Renaming succeeds only after the agent's native title is read back. Other agents report that native renaming is unavailable. OpenCode renaming requires a running local server: start `opencode serve --hostname 127.0.0.1 --port 4096`, then set `OPENCODE_SERVER_URL=http://127.0.0.1:4096` in the Zellij environment. If the server uses `OPENCODE_SERVER_PASSWORD`, provide the same value to Zellij. The server must use the same OpenCode data directory as the indexer.
 
 ## Supported Agents
 
@@ -120,7 +121,6 @@ Agents that cannot reliably map stored history back to a project directory are i
 - Session data is processed locally. The application has no telemetry and does not upload prompts or history.
 - The installer uses the network only to retrieve release metadata, binaries and checksums from GitHub.
 - Resuming a session launches the corresponding agent CLI with that agent's normal permissions and configuration.
-- Pressing `x` closes the matching Zellij runtime; it does not delete the agent's stored session history.
 - Before editing Zellij configuration, the installer creates a backup. Use `--no-keybind` when you want to configure the plugin manually.
 
 When reporting a problem, do not attach raw session files or prompts. Redact usernames, home-directory paths, repository names and secrets from logs or configuration snippets.

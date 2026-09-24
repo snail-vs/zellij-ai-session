@@ -76,10 +76,9 @@ bash /tmp/zellij-ai-session-install.sh --version latest
 
 ```text
 Enter   打开或恢复会话
-n       新建会话并选择 Agent
-x       关闭 runtime，保留 Agent 历史
 /       搜索所有已发现会话
 r       刷新索引
+R       通过原生工具重命名 Codex 或 OpenCode 会话
 q       关闭导航器
 ```
 
@@ -88,6 +87,8 @@ q       关闭导航器
 搜索范围包括会话标题、项目、目录和 Agent 名称，支持中文等 Unicode 子串。
 
 详情面板会读取各工具已保存的近期消息。Cursor 的本地 `prompt_history.json` 只提供用户提示，因此预览中不包含 Agent 回复。
+
+只有重新读回 Agent 的原生新标题后，Workbench 才会提示改名成功。其他 Agent 会提示暂不支持原生改名。OpenCode 改名需要先启动本机服务：`opencode serve --hostname 127.0.0.1 --port 4096`，并在启动 Zellij 的环境中设置 `OPENCODE_SERVER_URL=http://127.0.0.1:4096`。若服务使用 `OPENCODE_SERVER_PASSWORD`，Zellij 也需设置相同的值。服务和索引器须使用同一个 OpenCode 数据目录。
 
 ## 支持的 Agent
 
@@ -120,7 +121,6 @@ q       关闭导航器
 - 会话数据仅在本机处理；程序没有遥测功能，也不会上传提示词或会话历史。
 - 安装脚本只会通过网络从 GitHub 获取 Release 元数据、二进制文件和校验和。
 - 恢复会话时，会以对应 Agent 原有的权限和配置启动其 CLI。
-- 按 `x` 只关闭匹配的 Zellij runtime，不会删除 Agent 保存的历史会话。
 - 安装脚本修改 Zellij 配置前会创建备份；如果希望手动配置，请使用 `--no-keybind`。
 
 提交问题时不要附加未经处理的会话文件或提示词。请从日志和配置片段中删除用户名、主目录路径、仓库名称及密钥。

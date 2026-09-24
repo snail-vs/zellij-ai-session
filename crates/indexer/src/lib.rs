@@ -5,6 +5,7 @@ mod codewhale;
 mod codex;
 mod cursor;
 mod goose;
+mod native_rename;
 mod opencode;
 mod pi;
 mod qwen;
@@ -74,6 +75,48 @@ impl Indexer {
             .find(|adapter| adapter.agent() == agent)
             .ok_or_else(|| anyhow::anyhow!("no adapter registered for {agent}"))?
             .preview(session_id)
+    }
+
+    pub fn rename_session(
+        &self,
+        agent: AgentKind,
+        session_id: &str,
+        title: &str,
+    ) -> Result<AiSession> {
+        let title = title.trim();
+        anyhow::ensure!(!title.is_empty(), "session name cannot be empty");
+        anyhow::ensure!(
+            title.chars().count() <= 100,
+            "session name must be at most 100 characters"
+        );
+        anyhow::ensure!(
+            !title.chars().any(char::is_control),
+            "session name cannot contain control characters"
+        );
+        let adapter = self
+            .adapters
+            .iter()
+            .find(|adapter| adapter.agent() == agent)
+            .ok_or_else(|| anyhow::anyhow!("no adapter registered for {agent}"))?;
+        anyhow::ensure!(
+            adapter
+                .list_sessions()?
+                .iter()
+                .any(|s| s.agent_session_id == session_id),
+            "native session {session_id} was not found"
+        );
+        adapter.rename_session(session_id, title)?;
+        for _ in 0..10 {
+            if let Some(session) = adapter
+                .list_sessions()?
+                .into_iter()
+                .find(|s| s.agent_session_id == session_id && s.title == title)
+            {
+                return Ok(session);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        anyhow::bail!("native rename was not confirmed by a fresh scan; refresh and check the tool")
     }
 }
 

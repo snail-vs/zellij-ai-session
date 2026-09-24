@@ -24,6 +24,21 @@ impl AgentAdapter for OpenCodeAdapter {
         AgentKind::OpenCode
     }
 
+    fn rename_session(&self, session_id: &str, title: &str) -> Result<()> {
+        let default_database = std::env::var_os("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .or_else(|| {
+                std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share"))
+            })
+            .context("cannot locate OpenCode's default data directory")?
+            .join("opencode/opencode.db");
+        anyhow::ensure!(
+            self.database == default_database,
+            "native renaming is unavailable for a custom OpenCode database"
+        );
+        crate::native_rename::rename_opencode(session_id, title)
+    }
+
     fn list_sessions(&self) -> Result<Vec<AiSession>> {
         if !self.database.exists() {
             return Ok(Vec::new());

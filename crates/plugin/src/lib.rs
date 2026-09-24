@@ -22,6 +22,7 @@ mod plugin {
         Search,
         ProjectForm,
         ParentPicker,
+        RenameSession,
     }
 
     #[derive(Clone)]
@@ -44,11 +45,14 @@ mod plugin {
         selected: usize,
         collapsed: BTreeSet<String>,
         child_id: Option<String>,
+        rename_id: Option<String>,
+        rename_title: String,
         form_name: String,
         form_root: String,
         form_field: usize,
         search_query: String,
         status: String,
+        status_after_refresh: Option<String>,
         indexer: String,
         open_mode: OpenMode,
         scroll_offset: usize,
@@ -141,17 +145,19 @@ mod plugin {
                 View::Search => self.render_search(viewport, now_ms),
                 View::ProjectForm => self.render_project_form(),
                 View::ParentPicker => self.render_parent_picker(viewport),
+                View::RenameSession => self.render_rename_session(),
             }
 
             println!();
             println!("{}", "─".repeat(cols.max(1)));
             match self.view {
                 View::Tree => println!(
-                    "Enter open   Space toggle   ←/→ collapse/expand   C/E all   g/G/M first/mid/last   p project   m parent   / search   r refresh   q close"
+                    "Enter open   Space toggle   ←/→ collapse/expand   C/E all   g/G/M first/mid/last   p project   m parent   R rename   / search   r refresh   q close"
                 ),
                 View::Search => println!("Type or paste to search   Backspace erase   Esc back"),
                 View::ProjectForm => println!("Tab next field   Enter save   Esc cancel"),
                 View::ParentPicker => println!("Enter set parent   Esc cancel"),
+                View::RenameSession => println!("Enter rename   Esc cancel"),
             }
             if !self.status.is_empty() {
                 println!("{}", self.status);
@@ -293,14 +299,19 @@ mod plugin {
                 }
                 return true;
             }
-            if matches!(action, Some("create-project" | "set-parent")) {
+            if matches!(action, Some("create-project" | "set-parent" | "rename-session")) {
                 if exit_code == Some(0) {
                     self.status = if action == Some("create-project") {
                         "Project saved".into()
+                    } else if action == Some("rename-session") {
+                        "Native session renamed".into()
                     } else {
                         "Parent updated".into()
                     };
                     self.view = View::Tree;
+                    if action == Some("rename-session") {
+                        self.status_after_refresh = Some(self.status.clone());
+                    }
                     self.refresh();
                 } else {
                     self.status = command_error(stderr);
@@ -312,7 +323,7 @@ mod plugin {
                 match serde_json::from_slice::<IndexSnapshot>(&stdout) {
                     Ok(snapshot) => {
                         self.snapshot = Some(snapshot);
-                        self.status.clear();
+                        self.status = self.status_after_refresh.take().unwrap_or_default();
                         self.clamp_selection();
                     }
                     Err(error) => self.status = format!("Invalid index snapshot: {error}"),
@@ -350,11 +361,14 @@ mod plugin {
             if matches!(self.view, View::ProjectForm) {
                 return self.handle_project_form_key(key.bare_key);
             }
+            if matches!(self.view, View::RenameSession) {
+                return self.handle_rename_key(key.bare_key);
+            }
             if !key.has_no_modifiers() {
                 return false;
             }
             match self.view {
-                View::Search | View::ProjectForm => false,
+                View::Search | View::ProjectForm | View::RenameSession => false,
                 View::Tree => match key.bare_key {
                     BareKey::Down | BareKey::Char('j') => {
                         self.move_selection(1);
@@ -407,6 +421,10 @@ mod plugin {
                     }
                     BareKey::Char('m') => {
                         self.start_parent_picker();
+                        true
+                    }
+                    BareKey::Char('R') => {
+                        self.start_rename_session();
                         true
                     }
                     BareKey::Char('/') => {
@@ -486,6 +504,10 @@ mod plugin {
         }
 
         fn handle_pasted_text(&mut self, text: String) -> bool {
+            if matches!(self.view, View::RenameSession) {
+                self.rename_title.extend(text.chars().filter(|c| !c.is_control()));
+                return true;
+            }
             if matches!(self.view, View::ProjectForm) {
                 self.form_value_mut()
                     .push_str(text.trim_end_matches(['\n', '\r']));
@@ -558,6 +580,45 @@ mod plugin {
             self.form_root = root.to_string_lossy().into_owned();
             self.form_field = 0;
             self.view = View::ProjectForm;
+        }
+
+        fn start_rename_session(&mut self) {
+            let Some(TreeItem::Session(session, _)) = self.tree_items().get(self.selected).cloned() else {
+                self.status = "Select a session to rename".into();
+                return;
+            };
+            if !session.native_available {
+                self.status = "Native session is unavailable".into();
+                return;
+            }
+            if !matches!(session.agent, zellij_ai_session_core::AgentKind::Codex | zellij_ai_session_core::AgentKind::OpenCode) {
+                self.status = format!("{} does not support native renaming", session.agent);
+                return;
+            }
+            self.rename_id = Some(session.id);
+            self.rename_title = session.title;
+            self.view = View::RenameSession;
+        }
+
+        fn handle_rename_key(&mut self, key: BareKey) -> bool {
+            match key {
+                BareKey::Esc => self.view = View::Tree,
+                BareKey::Backspace => { self.rename_title.pop(); },
+                BareKey::Enter => {
+                    let title = self.rename_title.trim();
+                    if title.is_empty() {
+                        self.status = "Session name cannot be empty".into();
+                    } else if let Some(id) = &self.rename_id {
+                        let mut context = BTreeMap::new();
+                        context.insert("action".into(), "rename-session".into());
+                        run_command(&[self.indexer.as_str(), "rename-session", "--id", id, "--title", title], context);
+                        self.status = "Renaming native session…".into();
+                    }
+                }
+                BareKey::Char(c) if !c.is_control() => self.rename_title.push(c),
+                _ => return false,
+            }
+            true
         }
 
         fn activate_tree_item(&mut self) {
@@ -868,6 +929,7 @@ mod plugin {
                 View::Search => self.search_results().len(),
                 View::ProjectForm => 0,
                 View::ParentPicker => self.parent_candidates().len(),
+                View::RenameSession => 0,
             }
         }
 
@@ -1184,6 +1246,11 @@ mod plugin {
                 if self.form_field == 1 { ">" } else { " " },
                 self.form_root
             );
+        }
+
+        fn render_rename_session(&self) {
+            println!("Rename native session {}", self.rename_id.as_deref().unwrap_or(""));
+            println!("> Name: {}", self.rename_title);
         }
 
         fn render_parent_picker(&self, viewport: usize) {
