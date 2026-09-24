@@ -592,7 +592,7 @@ mod plugin {
                 return;
             }
             if !matches!(session.agent, zellij_ai_session_core::AgentKind::Codex | zellij_ai_session_core::AgentKind::OpenCode) {
-                self.status = format!("{} does not support native renaming", session.agent);
+                self.status = format!("Workbench has no native rename integration for {}", session.agent);
                 return;
             }
             self.rename_id = Some(session.id);

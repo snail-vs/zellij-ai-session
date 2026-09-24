@@ -88,7 +88,7 @@ q       关闭导航器
 
 详情面板会读取各工具已保存的近期消息。Cursor 的本地 `prompt_history.json` 只提供用户提示，因此预览中不包含 Agent 回复。
 
-只有重新读回 Agent 的原生新标题后，Workbench 才会提示改名成功。其他 Agent 会提示暂不支持原生改名。OpenCode 改名需要先启动本机服务：`opencode serve --hostname 127.0.0.1 --port 4096`，并在启动 Zellij 的环境中设置 `OPENCODE_SERVER_URL=http://127.0.0.1:4096`。若服务使用 `OPENCODE_SERVER_PASSWORD`，Zellij 也需设置相同的值。服务和索引器须使用同一个 OpenCode 数据目录。
+只有重新读回 Agent 的原生新标题后，Workbench 才会提示改名成功。目前 Workbench 只接入了 Codex 和 OpenCode；其他 Agent 即使自身能改名，也尚未接入 Workbench。OpenCode 改名需要先启动本机服务：`opencode serve --hostname 127.0.0.1 --port 4096`，并在启动 Zellij 的环境中设置 `OPENCODE_SERVER_URL=http://127.0.0.1:4096`。若服务使用 `OPENCODE_SERVER_PASSWORD`，Zellij 也需设置相同的值。服务和索引器须使用同一个 OpenCode 数据目录。
 
 ## 支持的 Agent
 

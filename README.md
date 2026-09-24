@@ -88,7 +88,7 @@ Search covers session title, project, directory and agent name, including Unicod
 
 The details pane reads recent saved messages for supported agents. Cursor's local `prompt_history.json` provides user prompts only, so its preview does not include agent replies.
 
-Renaming succeeds only after the agent's native title is read back. Other agents report that native renaming is unavailable. OpenCode renaming requires a running local server: start `opencode serve --hostname 127.0.0.1 --port 4096`, then set `OPENCODE_SERVER_URL=http://127.0.0.1:4096` in the Zellij environment. If the server uses `OPENCODE_SERVER_PASSWORD`, provide the same value to Zellij. The server must use the same OpenCode data directory as the indexer.
+Renaming succeeds only after the agent's native title is read back. Workbench currently has native rename integrations for Codex and OpenCode; other agents may support renaming in their own interfaces but have no Workbench integration yet. OpenCode renaming requires a running local server: start `opencode serve --hostname 127.0.0.1 --port 4096`, then set `OPENCODE_SERVER_URL=http://127.0.0.1:4096` in the Zellij environment. If the server uses `OPENCODE_SERVER_PASSWORD`, provide the same value to Zellij. The server must use the same OpenCode data directory as the indexer.
 
 ## Supported Agents
 
