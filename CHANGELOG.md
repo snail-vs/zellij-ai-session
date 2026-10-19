@@ -2,6 +2,13 @@
 
 本文件记录 `zellij-ai-session` 的重要变更。
 
+## [Unreleased]
+
+### Fixed
+
+- 兼容 OpenCode 2.0 的会话存储：OpenCode 2.0 将新会话与消息改写入 `session_v2` 与 `session_message` 表，1.x 的 `session`、`message`、`part` 表仅保留历史数据。升级后索引器改为优先读取 2.0 的表，未迁移的旧表作为回退，因此 2.0 新建的会话不再无法列出，且 1.x 迁移过来的会话也能正常预览。
+- OpenCode 2.0 会话的详情预览改为读取 `session_message` 中的内联内容，仅显示 user 与 assistant 的正文，不再混入 reasoning 与工具调用。
+
 ## [0.3.1] - 2026-09-24
 
 ### Added
