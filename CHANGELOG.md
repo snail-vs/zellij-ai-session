@@ -8,6 +8,7 @@
 
 - 新增 OMP（oh-my-pi）会话支持：读取 `~/.omp/agent/sessions/` 下的本地会话，在会话树中按项目分组列出，可用 `omp --resume <id>` 恢复，并支持在详情栏预览最近的对话。OMP 与 Pi 使用同一套 JSONL 会话格式，但把自动标题写在首行、`session` 条目挪到第二行，因此两者的解析逻辑已抽到共用模块中。
 - 索引器新增 `--omp-dir` 参数用于指定 OMP 的 agent 目录；未指定时沿用 OMP 自身的查找规则，`PI_CODING_AGENT_DIR` 优先，其次是默认的 `~/.omp/agent`。
+- 重新录制 README 的演示动画，改为脚本驱动真实插件生成：Zellij 在 tmux 中运行并加载新构建的 WASI 插件，按键逐步操作后截取终端画面。录制脚本放在 `docs/demo`，界面变化后可直接重新生成，不必手工截图。
 
 ### Fixed
 
