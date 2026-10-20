@@ -8,7 +8,7 @@
 
 [English](README.md)
 
-![打开 zellij-ai-session、选择项目、搜索并恢复会话](docs/demo.gif)
+![在 zellij-ai-session 中按项目浏览、预览会话并跨 Agent 搜索](docs/demo.gif)
 
 Codex、OpenCode、Claude Code 等 Agent CLI 分别保存自己的会话历史。`zellij-ai-session` 会发现这些已有的本地会话，按项目目录统一分组，让用户可以从一个入口搜索并继续之前的工作。
 
@@ -17,7 +17,7 @@ Codex、OpenCode、Claude Code 等 Agent CLI 分别保存自己的会话历史�
 ## 核心特点
 
 - **项目优先：** 同一项目即使混用多个 Agent，工作记录仍聚合在一起。
-- **多 Agent：** 开箱支持 9 种 Agent 会话格式。
+- **多 Agent：** 开箱支持 10 种 Agent 会话格式。
 - **一个动作继续工作：** `Enter` 既可聚焦运行中的会话，也可恢复历史会话。
 - **本地处理：** 会话发现和搜索均在本机完成，不需要账号或云端服务。
 - **预编译安装：** Linux 和 macOS 用户无需安装 Rust 工具链。

@@ -1,0 +1,51 @@
+#!/usr/bin/env python3
+"""Fake indexer for the demo recording.
+
+The plugin asks the indexer for a session snapshot, for previews and for the
+command that resumes a session. This script answers all three from the curated
+data in `snapshot.json` and `previews.json`, so the recording does not depend
+on the sessions that happen to exist on the recording machine.
+"""
+import json
+import os
+import sys
+import time
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def load(name):
+    with open(os.path.join(HERE, name), encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def main():
+    args = sys.argv[1:]
+    action = args[0] if args else "index"
+
+    if action == "index":
+        snapshot = load("snapshot.json")
+        snapshot["generated_at_ms"] = int(time.time() * 1000)
+        print(json.dumps(snapshot, ensure_ascii=False))
+        return 0
+
+    if action == "preview":
+        session_id = ""
+        if "--session-id" in args:
+            session_id = args[args.index("--session-id") + 1]
+        preview = load("previews.json").get(session_id)
+        if preview is None:
+            preview = {
+                "session_id": session_id,
+                "messages": [],
+                "note": "No readable user or Agent messages have been saved yet",
+            }
+        print(json.dumps(preview, ensure_ascii=False))
+        return 0
+
+    print(json.dumps({"program": "echo", "args": ["demo"], "cwd": "/tmp"}))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

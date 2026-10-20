@@ -8,7 +8,7 @@
 
 [中文文档](README.zh-CN.md)
 
-![Open zellij-ai-session, select a project, search, and resume a session](docs/demo.gif)
+![Browse projects, preview a session and search across agents in zellij-ai-session](docs/demo.gif)
 
 Codex, OpenCode, Claude Code and other agent CLIs each keep their own session history. `zellij-ai-session` discovers those existing local sessions, groups them by project directory, and gives you one place to search and continue the work.
 
@@ -17,7 +17,7 @@ It does not replace your agents or migrate their history. Press `Alt s`, choose 
 ## Highlights
 
 - **Project-first:** work is grouped by directory, even when one project uses several agents.
-- **Multi-agent:** nine agent session formats are supported out of the box.
+- **Multi-agent:** ten agent session formats are supported out of the box.
 - **One action to continue:** the same `Enter` action focuses a running session or resumes history.
 - **Local by design:** session discovery and search run on your machine; no account or cloud service is required.
 - **Ready-to-install binaries:** Linux and macOS users do not need a Rust toolchain.

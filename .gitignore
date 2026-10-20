@@ -1,3 +1,8 @@
 /target/
 .codegraph/
 vendor/zellij-utils/target/
+
+# Intermediate files of the demo recording, see docs/demo/README.md
+docs/demo/work/
+docs/demo/snapshot.json
+docs/demo/previews.json
