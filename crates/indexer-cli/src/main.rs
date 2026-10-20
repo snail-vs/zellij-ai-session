@@ -32,6 +32,7 @@ fn main() -> Result<()> {
         match arg.as_str() {
             "--codex-home" => config.codex_home = args.next().map(Into::into),
             "--opencode-db" => config.opencode_db = args.next().map(Into::into),
+            "--omp-dir" => config.omp_dir = args.next().map(Into::into),
             "--cursor-home" => config.cursor_home = args.next().map(Into::into),
             "--workbench-db" => workbench_db = args.next().map(Into::into),
             "--help" | "-h" => {
@@ -63,6 +64,7 @@ fn rename_session_command(args: Vec<String>) -> Result<()> {
             "--title" => title = args.next(),
             "--codex-home" => config.codex_home = args.next().map(Into::into),
             "--opencode-db" => config.opencode_db = args.next().map(Into::into),
+            "--omp-dir" => config.omp_dir = args.next().map(Into::into),
             "--workbench-db" => workbench_db = args.next().map(Into::into),
             unknown => anyhow::bail!("unknown rename-session argument: {unknown}"),
         }
@@ -104,6 +106,7 @@ fn preview_command(args: Vec<String>) -> Result<()> {
             "--session-id" => session_id = args.next(),
             "--codex-home" => config.codex_home = args.next().map(Into::into),
             "--opencode-db" => config.opencode_db = args.next().map(Into::into),
+            "--omp-dir" => config.omp_dir = args.next().map(Into::into),
             unknown => anyhow::bail!("unknown preview argument: {unknown}"),
         }
     }

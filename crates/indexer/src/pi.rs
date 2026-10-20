@@ -1,14 +1,12 @@
-use std::fs::File;
-use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use anyhow::{Context, Result};
-use serde_json::Value;
+use anyhow::Result;
 
 use zellij_ai_session_core::{AgentKind, AiSession, CommandSpec, SessionPreview};
 
-use crate::adapters::{AgentAdapter, preview_message, preview_result};
+use crate::adapters::{AgentAdapter, preview_result};
+use crate::pi_format;
 
 pub struct PiAdapter {
     sessions_root: PathBuf,
@@ -20,82 +18,24 @@ impl PiAdapter {
     }
 
     fn parse_file(&self, path: &Path) -> Result<Option<AiSession>> {
-        let file =
-            File::open(path).with_context(|| format!("open Pi session {}", path.display()))?;
-        let mut lines = BufReader::new(file).lines();
-
-        let header_line = match lines.next().transpose()? {
-            Some(line) => line,
-            None => return Ok(None),
+        let Some(header) = pi_format::read_header(path)? else {
+            return Ok(None);
         };
-        let header: Value = serde_json::from_str(&header_line)
-            .with_context(|| format!("parse Pi session header {}", path.display()))?;
-        if header.get("type").and_then(Value::as_str) != Some("session") {
+        if header.cwd.as_os_str().is_empty() {
             return Ok(None);
         }
-        let uuid = header
-            .get("id")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string();
-        let directory: PathBuf = match header.get("cwd").and_then(Value::as_str) {
-            Some(cwd) => cwd.into(),
-            None => return Ok(None),
-        };
-        let created_at_ms = header
-            .get("timestamp")
-            .and_then(Value::as_str)
-            .and_then(crate::adapters::iso_to_ms);
-
-        let mut title: Option<String> = None;
-        let mut updated_at_ms = created_at_ms;
-        for line in lines {
-            let line = line?;
-            let entry: Value = match serde_json::from_str(&line) {
-                Ok(value) => value,
-                Err(_) => continue,
-            };
-            match entry.get("type").and_then(Value::as_str) {
-                Some("session_info") => {
-                    if let Some(name) = entry.get("name").and_then(Value::as_str) {
-                        let cleaned = name.lines().next().unwrap_or(name).trim().to_string();
-                        if !cleaned.is_empty() {
-                            title = Some(cleaned.chars().take(200).collect());
-                        }
-                    }
-                }
-                Some("message") => {
-                    if title.is_none() {
-                        if let Some(message) = entry.get("message") {
-                            if message.get("role").and_then(Value::as_str) == Some("user") {
-                                title = message
-                                    .get("content")
-                                    .and_then(crate::adapters::first_text)
-                                    .map(|text| text.chars().take(200).collect());
-                            }
-                        }
-                    }
-                    if let Some(timestamp) = entry
-                        .get("timestamp")
-                        .and_then(Value::as_str)
-                        .and_then(crate::adapters::iso_to_ms)
-                    {
-                        updated_at_ms = Some(timestamp);
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        let title = title.unwrap_or_else(|| format!("Pi session {}", &uuid[..uuid.len().min(8)]));
+        let title = header
+            .title
+            .unwrap_or_else(|| format!("Pi session {}", &header.id[..header.id.len().min(8)]));
+        // Pi addresses its sessions by file path, not by the uuid in the header.
         let agent_session_id = path.to_string_lossy().into_owned();
         Ok(Some(AiSession::new(
             AgentKind::Pi,
             &agent_session_id,
             title,
-            directory,
-            created_at_ms,
-            updated_at_ms,
+            header.cwd,
+            header.created_at_ms,
+            header.updated_at_ms,
         )))
     }
 }
@@ -147,26 +87,9 @@ impl AgentAdapter for PiAdapter {
         if !self.sessions_root.exists() {
             return Ok(result);
         }
-        for entry in std::fs::read_dir(&self.sessions_root)
-            .with_context(|| format!("read {}", self.sessions_root.display()))?
-        {
-            let entry = entry?;
-            let path = entry.path();
-            let jsonl_files: Vec<PathBuf> = if path.is_dir() {
-                std::fs::read_dir(&path)
-                    .with_context(|| format!("read {}", path.display()))?
-                    .filter_map(|sub| sub.ok().map(|sub| sub.path()))
-                    .filter(|sub| sub.extension().and_then(|ext| ext.to_str()) == Some("jsonl"))
-                    .collect()
-            } else if path.extension().and_then(|ext| ext.to_str()) == Some("jsonl") {
-                vec![path]
-            } else {
-                continue;
-            };
-            for jsonl in jsonl_files {
-                if let Some(session) = self.parse_file(&jsonl)? {
-                    result.push(session);
-                }
+        for jsonl in pi_format::session_files(&self.sessions_root) {
+            if let Some(session) = self.parse_file(&jsonl)? {
+                result.push(session);
             }
         }
         Ok(result)
@@ -189,27 +112,7 @@ impl AgentAdapter for PiAdapter {
         {
             return Ok(preview_result(session_id, false, Vec::new()));
         }
-        let file = File::open(path)?;
-        let mut messages = Vec::new();
-        for line in BufReader::new(file).lines() {
-            let Ok(value) = serde_json::from_str::<Value>(&line?) else {
-                continue;
-            };
-            if value.get("type").and_then(Value::as_str) != Some("message") {
-                continue;
-            }
-            let Some(message) = value.get("message") else {
-                continue;
-            };
-            let Some(role) = message.get("role").and_then(Value::as_str) else {
-                continue;
-            };
-            if let Some(content) = message.get("content") {
-                if let Some(message) = preview_message(role, content) {
-                    messages.push(message);
-                }
-            }
-        }
+        let messages = pi_format::read_messages(path)?;
         Ok(preview_result(session_id, true, messages))
     }
 }

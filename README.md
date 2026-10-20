@@ -98,6 +98,7 @@ Renaming succeeds only after the agent's native title is read back. Workbench ha
 | [OpenCode](https://opencode.ai) | `~/.local/share/opencode/opencode.db` (XDG) | `opencode --session <id>` |
 | [Cursor](https://cursor.com) | `~/.cursor/chats/<workspace>/<chat>/meta.json` | `cursor-agent --resume <id>` |
 | Pi | `~/.pi/agent/sessions/` | `pi --session <path>` |
+| [OMP](https://omp.sh) (oh-my-pi) | `~/.omp/agent/sessions/` | `omp --resume <id>` |
 | Reasonix | `~/.reasonix/projects/*/sessions/` or legacy `~/.reasonix/sessions/` | `reasonix --resume <path>` |
 | Codewhale | `~/.codewhale/sessions/` or legacy `~/.deepseek/sessions/` | `codewhale --resume <id>` |
 | [Claude Code](https://claude.com/claude-code) | `~/.claude/projects/` | `claude --resume <id>` |
@@ -112,6 +113,7 @@ Environment overrides:
 - Qwen Code: `QWEN_CONFIG_DIR`
 - Cursor: `CURSOR_CONFIG_DIR` (the directory containing `chats/`)
 - OpenCode / Goose: `XDG_DATA_HOME`
+- OMP: `PI_CODING_AGENT_DIR` (the agent directory, `~/.omp/agent` by default)
 
 Agents that cannot reliably map stored history back to a project directory are intentionally excluded from the default registry. New agents can be proposed with the [agent request template](https://github.com/snail-vs/zellij-ai-session/issues/new/choose).
 

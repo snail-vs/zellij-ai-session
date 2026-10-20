@@ -6,8 +6,10 @@ mod codex;
 mod cursor;
 mod goose;
 mod native_rename;
+mod omp;
 mod opencode;
 mod pi;
+mod pi_format;
 mod qwen;
 mod reasonix;
 pub mod workbench;
@@ -27,6 +29,8 @@ pub struct IndexerConfig {
     pub codex_home: Option<PathBuf>,
     pub opencode_db: Option<PathBuf>,
     pub cursor_home: Option<PathBuf>,
+    /// OMP agent directory, the parent of its `sessions` directory.
+    pub omp_dir: Option<PathBuf>,
 }
 
 pub struct Indexer {
@@ -124,10 +128,12 @@ pub fn apply_runtime(sessions: &mut [AiSession], runtimes: &[RuntimeRef]) {
             .iter()
             .filter(|runtime| {
                 runtime.cwd.as_deref() == Some(session.directory.as_path())
-                    && runtime
-                        .command
-                        .as_deref()
-                        .is_some_and(|command| command.contains(session.agent.command_name()))
+                    && runtime.command.as_deref().is_some_and(|command| {
+                        zellij_ai_session_core::command_mentions_agent(
+                            command,
+                            session.agent.command_name(),
+                        )
+                    })
             })
             .collect();
         let exact = candidates.iter().find(|runtime| {
@@ -182,6 +188,74 @@ mod tests {
                 pane_id: Some(2),
                 cwd: Some(PathBuf::from("/tmp/app")),
                 command: Some("codex resume one".into()),
+                confidence: RuntimeConfidence::Heuristic,
+            }],
+        );
+        assert_eq!(sessions[0].status, SessionStatus::Running);
+    }
+
+    #[test]
+    fn runtime_matching_ignores_commands_that_merely_contain_an_agent_name() {
+        let project =
+            zellij_ai_session_core::project_for_directory(std::path::Path::new("/tmp/app"));
+        let mut sessions = vec![AiSession {
+            id: "omp:one".into(),
+            agent: AgentKind::Omp,
+            title: "one".into(),
+            project_id: project.id,
+            directory: PathBuf::from("/tmp/app"),
+            created_at_ms: None,
+            updated_at_ms: None,
+            agent_session_id: "one".into(),
+            status: SessionStatus::Historical,
+            runtime: None,
+            parent_id: None,
+            native_available: true,
+            selected_cwd: None,
+            work_state: None,
+        }];
+        apply_runtime(
+            &mut sessions,
+            &[RuntimeRef {
+                zellij_session: Some("dev".into()),
+                tab_id: Some(1),
+                pane_id: Some(2),
+                cwd: Some(PathBuf::from("/tmp/app")),
+                command: Some("npm run dev".into()),
+                confidence: RuntimeConfidence::Heuristic,
+            }],
+        );
+        assert_eq!(sessions[0].status, SessionStatus::Historical);
+    }
+
+    #[test]
+    fn runtime_matching_marks_an_omp_session_running() {
+        let project =
+            zellij_ai_session_core::project_for_directory(std::path::Path::new("/tmp/app"));
+        let mut sessions = vec![AiSession {
+            id: "omp:one".into(),
+            agent: AgentKind::Omp,
+            title: "one".into(),
+            project_id: project.id,
+            directory: PathBuf::from("/tmp/app"),
+            created_at_ms: None,
+            updated_at_ms: None,
+            agent_session_id: "one".into(),
+            status: SessionStatus::Historical,
+            runtime: None,
+            parent_id: None,
+            native_available: true,
+            selected_cwd: None,
+            work_state: None,
+        }];
+        apply_runtime(
+            &mut sessions,
+            &[RuntimeRef {
+                zellij_session: Some("dev".into()),
+                tab_id: Some(1),
+                pane_id: Some(2),
+                cwd: Some(PathBuf::from("/tmp/app")),
+                command: Some("omp --resume one".into()),
                 confidence: RuntimeConfidence::Heuristic,
             }],
         );

@@ -11,6 +11,7 @@ pub enum AgentKind {
     OpenCode,
     Cursor,
     Pi,
+    Omp,
     Reasonix,
     Codewhale,
     Claude,
@@ -54,6 +55,12 @@ pub const AGENT_META: &[AgentMeta] = &[
         command: "pi",
         display_name: "Pi",
         resume_args: &["--session"],
+    },
+    AgentMeta {
+        kind: AgentKind::Omp,
+        command: "omp",
+        display_name: "OMP",
+        resume_args: &["--resume"],
     },
     AgentMeta {
         kind: AgentKind::Reasonix,
@@ -110,6 +117,25 @@ impl AgentKind {
             .find(|meta| meta.command == name)
             .map(|meta| meta.kind)
     }
+}
+
+/// Whether a shell command line runs the given agent.
+///
+/// The agent name has to match on word boundaries: a plain substring test would
+/// report `pip install` as Pi and `compgen` as OMP, because both short command
+/// names also occur inside unrelated words.
+pub fn command_mentions_agent(command: &str, agent: &str) -> bool {
+    if agent.is_empty() {
+        return false;
+    }
+    command.match_indices(agent).any(|(index, _)| {
+        let before = command[..index].chars().next_back();
+        let after = command[index + agent.len()..].chars().next();
+        let is_word_char = |character: Option<char>| {
+            character.is_some_and(|character| character.is_alphanumeric() || character == '_')
+        };
+        !is_word_char(before) && !is_word_char(after)
+    })
 }
 
 impl std::fmt::Display for AgentKind {
@@ -504,5 +530,23 @@ mod tests {
     #[test]
     fn search_key_supports_unicode_text() {
         assert!(search_key("修复中文搜索").contains(&search_key("中文搜索")));
+    }
+
+    #[test]
+    fn agent_command_matching_needs_word_boundaries() {
+        assert!(command_mentions_agent("omp --resume abc", "omp"));
+        assert!(command_mentions_agent(
+            "/usr/local/bin/omp --resume abc",
+            "omp"
+        ));
+        assert!(command_mentions_agent(
+            "npx @anthropic-ai/claude-code",
+            "claude"
+        ));
+        // A short command name also occurs inside unrelated words.
+        assert!(!command_mentions_agent("pip install requests", "pi"));
+        assert!(!command_mentions_agent("compgen builtin", "omp"));
+        assert!(!command_mentions_agent("npm run dev", "pi"));
+        assert!(!command_mentions_agent("", "omp"));
     }
 }

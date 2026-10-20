@@ -190,7 +190,12 @@ mod plugin {
                     };
                     let agent = zellij_ai_session_core::AGENT_META
                         .iter()
-                        .find(|meta| command.contains(meta.command))
+                        .find(|meta| {
+                            zellij_ai_session_core::command_mentions_agent(
+                                command,
+                                meta.command,
+                            )
+                        })
                         .map(|meta| meta.command);
                     let Some(agent) = agent else {
                         continue;
@@ -216,7 +221,10 @@ mod plugin {
                     .filter(|runtime| {
                         runtime.cwd.as_deref() == Some(session.directory.as_path())
                             && runtime.command.as_deref().is_some_and(|command| {
-                                command.contains(session.agent.command_name())
+                                zellij_ai_session_core::command_mentions_agent(
+                                    command,
+                                    session.agent.command_name(),
+                                )
                             })
                     })
                     .collect();

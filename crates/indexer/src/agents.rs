@@ -5,8 +5,8 @@ use zellij_ai_session_core::AgentKind;
 use crate::adapters::AgentAdapter;
 use crate::{
     IndexerConfig, claude::ClaudeAdapter, codewhale::CodewhaleAdapter, codex::CodexAdapter,
-    cursor::CursorAdapter, goose::GooseAdapter, opencode::OpenCodeAdapter, pi::PiAdapter,
-    qwen::QwenAdapter, reasonix::ReasonixAdapter,
+    cursor::CursorAdapter, goose::GooseAdapter, omp::OmpAdapter, opencode::OpenCodeAdapter,
+    pi::PiAdapter, qwen::QwenAdapter, reasonix::ReasonixAdapter,
 };
 
 /// Builds an adapter from config, returning `None` when the agent's session
@@ -21,6 +21,7 @@ pub const ADAPTER_BUILDERS: &[(AgentKind, AdapterBuilder)] = &[
     (AgentKind::OpenCode, build_opencode),
     (AgentKind::Cursor, build_cursor),
     (AgentKind::Pi, build_pi),
+    (AgentKind::Omp, build_omp),
     (AgentKind::Reasonix, build_reasonix),
     (AgentKind::Codewhale, build_codewhale),
     (AgentKind::Claude, build_claude),
@@ -75,6 +76,28 @@ fn build_cursor(config: &IndexerConfig) -> Option<Box<dyn AgentAdapter>> {
 fn build_pi(_config: &IndexerConfig) -> Option<Box<dyn AgentAdapter>> {
     let sessions_root = home().map(|base| base.join(".pi/agent/sessions"))?;
     Some(Box::new(PiAdapter::new(sessions_root)))
+}
+
+/// OMP stores its sessions in `<agent dir>/sessions`. It resolves that
+/// directory the same way the tool itself does: `PI_CODING_AGENT_DIR` wins,
+/// otherwise the default `~/.omp/agent` is used. The `~/.pi/agent` fallback of
+/// the tool is left out, because those sessions are already indexed as Pi.
+fn build_omp(config: &IndexerConfig) -> Option<Box<dyn AgentAdapter>> {
+    let agent_dir = config
+        .omp_dir
+        .clone()
+        .or_else(|| {
+            std::env::var_os("PI_CODING_AGENT_DIR")
+                .map(PathBuf::from)
+                .filter(|dir| !dir.as_os_str().is_empty())
+        })
+        .or_else(|| home().map(|base| base.join(".omp/agent")))?;
+    let sessions_root = agent_dir.join("sessions");
+    // The same directory is already indexed as Pi, so do not list it twice.
+    if home().is_some_and(|base| sessions_root == base.join(".pi/agent/sessions")) {
+        return None;
+    }
+    Some(Box::new(OmpAdapter::new(sessions_root)))
 }
 
 fn build_reasonix(_config: &IndexerConfig) -> Option<Box<dyn AgentAdapter>> {

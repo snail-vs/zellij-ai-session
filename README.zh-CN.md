@@ -98,6 +98,7 @@ q       关闭导航器
 | [OpenCode](https://opencode.ai) | `~/.local/share/opencode/opencode.db`（XDG） | `opencode --session <id>` |
 | [Cursor](https://cursor.com) | `~/.cursor/chats/<workspace>/<chat>/meta.json` | `cursor-agent --resume <id>` |
 | Pi | `~/.pi/agent/sessions/` | `pi --session <path>` |
+| [OMP](https://omp.sh) (oh-my-pi) | `~/.omp/agent/sessions/` | `omp --resume <id>` |
 | Reasonix | `~/.reasonix/projects/*/sessions/` 或旧版 `~/.reasonix/sessions/` | `reasonix --resume <path>` |
 | Codewhale | `~/.codewhale/sessions/` 或旧版 `~/.deepseek/sessions/` | `codewhale --resume <id>` |
 | [Claude Code](https://claude.com/claude-code) | `~/.claude/projects/` | `claude --resume <id>` |
@@ -112,6 +113,7 @@ q       关闭导航器
 - Qwen Code：`QWEN_CONFIG_DIR`
 - Cursor：`CURSOR_CONFIG_DIR`（该目录下应包含 `chats/`）
 - OpenCode / Goose：`XDG_DATA_HOME`
+- OMP：`PI_CODING_AGENT_DIR`（agent 目录，默认 `~/.omp/agent`）
 
 无法稳定地将历史会话映射回项目目录的 Agent，不会加入默认注册表。可以通过 [Agent 请求模板](https://github.com/snail-vs/zellij-ai-session/issues/new/choose) 提议新的适配。
 
