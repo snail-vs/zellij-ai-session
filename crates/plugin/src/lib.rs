@@ -192,7 +192,7 @@ mod plugin {
                         .iter()
                         .find(|meta| {
                             zellij_ai_session_core::command_mentions_agent(
-                                command,
+                                &command,
                                 meta.command,
                             )
                         })
