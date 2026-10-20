@@ -2,17 +2,23 @@
 
 本文件记录 `zellij-ai-session` 的重要变更。
 
-## [Unreleased]
+## [0.3.2] - 2026-10-20
 
 ### Added
 
-- 新增 OMP（oh-my-pi）会话支持：读取 `~/.omp/agent/sessions/` 下的本地会话，按 uuid 列出并用 `omp --resume <id>` 恢复，同时支持详情预览。OMP 与 Pi 使用同一套 JSONL 会话格式，但把自动标题写在首行、`session` 条目挪到第二行，因此两者的解析逻辑已抽到共用模块中。
+- 新增 OMP（oh-my-pi）会话支持：读取 `~/.omp/agent/sessions/` 下的本地会话，在会话树中按项目分组列出，可用 `omp --resume <id>` 恢复，并支持在详情栏预览最近的对话。OMP 与 Pi 使用同一套 JSONL 会话格式，但把自动标题写在首行、`session` 条目挪到第二行，因此两者的解析逻辑已抽到共用模块中。
+- 索引器新增 `--omp-dir` 参数用于指定 OMP 的 agent 目录；未指定时沿用 OMP 自身的查找规则，`PI_CODING_AGENT_DIR` 优先，其次是默认的 `~/.omp/agent`。
 
 ### Fixed
 
-- 兼容 OpenCode 2.0 的会话存储：OpenCode 2.0 将新会话与消息改写入 `session_v2` 与 `session_message` 表，1.x 的 `session`、`message`、`part` 表仅保留历史数据。升级后索引器改为优先读取 2.0 的表，未迁移的旧表作为回退，因此 2.0 新建的会话不再无法列出，且 1.x 迁移过来的会话也能正常预览。
-- OpenCode 2.0 会话的详情预览改为读取 `session_message` 中的内联内容，仅显示 user 与 assistant 的正文，不再混入 reasoning 与工具调用。
+- 兼容 OpenCode 2.0 的会话存储：OpenCode 2.0 将新会话与消息改写入 `session_v2` 与 `session_message` 表，1.x 的 `session`、`message`、`part` 表仅保留历史数据。索引器改为优先读取 2.0 的表，未迁移的旧表作为回退，因此升级后 2.0 新建的会话不再无法列出，1.x 迁移过来的会话也能正常列出与预览。
+- OpenCode 2.0 会话的详情预览改为读取 `session_message` 中的内联内容，只显示 user 与 assistant 的正文，不再混入 reasoning 与工具调用。
 - 识别运行中会话时改用词边界匹配命令名，`pip install`、`compgen`、`npm run` 等命令不再被误判为 Pi 或 OMP。
+- 读取 Pi 会话时不再要求 `session` 条目位于文件首行，会话标题中的换行也会折叠为空格。
+
+### Limitations
+
+- OMP 会话暂不支持原生改名：OMP 没有对应的命令行参数，改名只能通过斜杠命令完成，而恢复会话前需要先还原该会话的模型，模型不可用时改名无法生效；工作台会提示该工具尚未接入原生改名。
 
 ## [0.3.1] - 2026-09-24
 
